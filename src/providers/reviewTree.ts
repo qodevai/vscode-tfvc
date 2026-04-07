@@ -8,6 +8,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { AdoRestClient } from '../ado/restClient';
 import { CodeReviewRequest, ShelvesetChange } from '../ado/types';
+import { normalizeChangeLabel } from '../changeType';
 import { logError } from '../outputChannel';
 
 type ReviewTreeItem = ReviewRequestItem | ReviewFileItem;
@@ -31,15 +32,14 @@ export class ReviewFileItem extends vscode.TreeItem {
         const fileName = path.basename(change.path);
         super(fileName, vscode.TreeItemCollapsibleState.None);
 
-        const changeLabel = change.changeType.split(',')[0].trim().toLowerCase();
+        const changeLabel = normalizeChangeLabel(change.changeType);
         this.description = change.path;
         this.tooltip = `${change.changeType}: ${change.path}`;
         this.contextValue = 'reviewFile';
 
-        // Badge icon based on change type
-        if (changeLabel.includes('add')) {
+        if (changeLabel === 'add') {
             this.iconPath = new vscode.ThemeIcon('diff-added', new vscode.ThemeColor('gitDecoration.addedResourceForeground'));
-        } else if (changeLabel.includes('delete')) {
+        } else if (changeLabel === 'delete') {
             this.iconPath = new vscode.ThemeIcon('diff-removed', new vscode.ThemeColor('gitDecoration.deletedResourceForeground'));
         } else {
             this.iconPath = new vscode.ThemeIcon('diff-modified', new vscode.ThemeColor('gitDecoration.modifiedResourceForeground'));

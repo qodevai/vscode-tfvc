@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { TfvcCli } from './tfvcCli';
@@ -12,6 +13,7 @@ import { ReviewTreeProvider, ReviewRequestItem, ReviewFileItem } from './provide
 import { ReviewFileContentProvider, REVIEW_SCHEME } from './providers/fileContent';
 import { ReviewVerdict } from './ado/types';
 import { ReviewCommentController } from './providers/comments';
+import { normalizeChangeLabel } from './changeType';
 import { getOutputChannel, logError } from './outputChannel';
 
 let disposables: vscode.Disposable[] = [];
@@ -86,9 +88,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     let restClient: AdoRestClient | undefined;
     let soapClient: AdoSoapClient | undefined;
 
-    function initRestClient(): void {
+    async function initRestClient(): Promise<void> {
         const cfg = vscode.workspace.getConfiguration('tfvc');
-        const pat = cfg.get<string>('pat', '');
+        const pat = await context.secrets.get('tfvc.pat') || cfg.get<string>('pat', '');
         const org = cfg.get<string>('adoOrg', '');
         const project = cfg.get<string>('adoProject', '');
         const baseUrl = cfg.get<string>('adoBaseUrl', '');
@@ -113,13 +115,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         outputChannel.appendLine(`ADO REST client initialized for ${baseUrl || `dev.azure.com/${org}`}/${project}`);
     }
 
-    initRestClient();
+    await initRestClient();
 
     // Re-init REST client when config changes
     disposables.push(
         vscode.workspace.onDidChangeConfiguration(e => {
             if (
-                e.affectsConfiguration('tfvc.pat') ||
                 e.affectsConfiguration('tfvc.adoOrg') ||
                 e.affectsConfiguration('tfvc.adoProject') ||
                 e.affectsConfiguration('tfvc.adoBaseUrl') ||
@@ -131,13 +132,40 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 const interval = vscode.workspace.getConfiguration('tfvc').get<number>('autoRefreshInterval', 0);
                 repo.startAutoRefresh(interval);
             }
+        }),
+        context.secrets.onDidChange(e => {
+            if (e.key === 'tfvc.pat') {
+                initRestClient();
+            }
         })
+    );
+
+    // ── PAT management command ───────────────────────────────────────
+
+    disposables.push(
+        vscode.commands.registerCommand('tfvc.setPat', async () => {
+            const pat = await vscode.window.showInputBox({
+                prompt: 'Azure DevOps Personal Access Token',
+                password: true,
+                placeHolder: 'Paste your PAT here',
+            });
+            if (pat === undefined) { return; }
+            if (pat === '') {
+                await context.secrets.delete('tfvc.pat');
+                vscode.window.showInformationMessage('TFVC: PAT removed from secure storage.');
+            } else {
+                await context.secrets.store('tfvc.pat', pat);
+                vscode.window.showInformationMessage('TFVC: PAT stored securely.');
+            }
+            await initRestClient();
+        }),
     );
 
     // ── Review commands ──────────────────────────────────────────────
 
     disposables.push(
         vscode.commands.registerCommand('tfvc.refreshReviews', () => {
+            reviewContent.clearCache();
             reviewTree.refresh();
         }),
 
@@ -146,24 +174,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
             const review = item.review;
             const change = item.change;
-            const changeLabel = change.changeType.split(',')[0].trim().toLowerCase();
+            const changeLabel = normalizeChangeLabel(change.changeType);
             const fileName = path.basename(change.path);
 
             const shelvedQuery = `shelveset=${encodeURIComponent(review.shelvesetName)}&owner=${encodeURIComponent(review.shelvesetOwner)}`;
 
-            if (changeLabel.includes('add')) {
-                // New file — diff empty vs shelved content
+            if (changeLabel === 'add') {
                 const baseUri = vscode.Uri.parse(`${REVIEW_SCHEME}://base/${change.path}`);
                 const shelvedUri = vscode.Uri.parse(`${REVIEW_SCHEME}://shelved/${change.path}?${shelvedQuery}`);
                 await vscode.commands.executeCommand(
                     'vscode.diff', baseUri, shelvedUri, `${fileName} (Added)`
                 );
-            } else if (changeLabel.includes('delete')) {
-                // Deleted file — show base content only
+            } else if (changeLabel === 'delete') {
                 const baseUri = vscode.Uri.parse(`${REVIEW_SCHEME}://base/${change.path}`);
                 await vscode.commands.executeCommand('vscode.open', baseUri);
             } else {
-                // Edit — diff base vs shelved
                 const baseUri = vscode.Uri.parse(`${REVIEW_SCHEME}://base/${change.path}`);
                 const shelvedUri = vscode.Uri.parse(`${REVIEW_SCHEME}://shelved/${change.path}?${shelvedQuery}`);
                 await vscode.commands.executeCommand(
@@ -171,13 +196,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 );
             }
 
-            // Load inline comments for this review (pass query so URIs match the diff view)
             await reviewComments.loadComments(review.id, shelvedQuery);
         }),
 
         vscode.commands.registerCommand('tfvc.submitVerdict', async (item: ReviewRequestItem) => {
             if (!restClient) {
-                vscode.window.showErrorMessage('TFVC: Configure tfvc.pat and tfvc.adoOrg to submit verdicts.');
+                vscode.window.showErrorMessage('TFVC: Run "TFVC: Set PAT" and configure tfvc.adoOrg to submit verdicts.');
                 return;
             }
 
@@ -219,7 +243,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
         vscode.commands.registerCommand('tfvc.postComment', async () => {
             if (!restClient || !soapClient) {
-                vscode.window.showErrorMessage('TFVC: Configure tfvc.pat and tfvc.adoOrg to post comments.');
+                vscode.window.showErrorMessage('TFVC: Run "TFVC: Set PAT" and configure tfvc.adoOrg to post comments.');
                 return;
             }
             vscode.window.showInformationMessage('TFVC: Use the Comments API in a review diff to post inline comments.');
@@ -228,7 +252,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     disposables.push(outputChannel);
 
-    // Store disposables in context
+    // Store disposables in context (single ownership — deactivate() is a no-op)
     context.subscriptions.push(...disposables);
 
     // Initial refresh
@@ -240,20 +264,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 }
 
 export function deactivate(): void {
-    for (const d of disposables) {
-        d.dispose();
-    }
+    // VS Code disposes context.subscriptions automatically.
+    // Clear our reference to avoid double disposal.
     disposables = [];
 }
 
-/**
- * Find the workspace root containing a .tf/ folder (TFVC workspace metadata).
- */
 function findTfvcWorkspaceRoot(): string | undefined {
     const folders = vscode.workspace.workspaceFolders;
     if (!folders) { return undefined; }
 
-    const fs = require('fs');
     for (const folder of folders) {
         for (const dir of ['.tf', '$tf']) {
             const tfDir = vscode.Uri.joinPath(folder.uri, dir);

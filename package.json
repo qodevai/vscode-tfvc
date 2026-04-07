@@ -2,7 +2,7 @@
   "name": "vscode-tfvc",
   "displayName": "TFVC",
   "description": "Team Foundation Version Control (TFVC) source control integration for VS Code",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "janscheffler",
   "license": "MIT",
   "engines": {
@@ -136,6 +136,11 @@
         "command": "tfvc.postComment",
         "title": "Post Inline Comment",
         "category": "TFVC"
+      },
+      {
+        "command": "tfvc.setPat",
+        "title": "Set PAT (Personal Access Token)",
+        "category": "TFVC"
       }
     ],
     "menus": {
@@ -257,7 +262,7 @@
         {
           "id": "tfvcReviews",
           "name": "TFVC Code Reviews",
-          "when": "config.tfvc.pat"
+          "when": "config.tfvc.adoOrg || config.tfvc.adoBaseUrl"
         }
       ]
     },
@@ -268,11 +273,6 @@
           "type": "string",
           "default": "",
           "description": "Path to the `tf` (TEE-CLC) executable. Leave empty to use `tf` from PATH. Only needed for local workspace operations (status, checkin, checkout, undo, get)."
-        },
-        "tfvc.pat": {
-          "type": "string",
-          "default": "",
-          "description": "Azure DevOps Personal Access Token (PAT) with Code (Read) + Work Items (Read & Write) scopes. Used for REST API operations (shelvesets, code reviews, file content)."
         },
         "tfvc.adoOrg": {
           "type": "string",

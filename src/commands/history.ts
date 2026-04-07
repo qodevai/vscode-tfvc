@@ -1,4 +1,5 @@
 import { TfvcCli } from '../tfvcCli';
+import { extractAttr } from '../xmlUtils';
 
 export interface HistoryEntry {
     changeset: number;
@@ -68,8 +69,3 @@ function parseHistoryXml(xml: string): HistoryEntry[] {
     return entries;
 }
 
-function extractAttr(attrs: string, name: string): string | undefined {
-    const regex = new RegExp(`${name}="([^"]*)"`, 'i');
-    const match = regex.exec(attrs);
-    return match ? match[1] : undefined;
-}

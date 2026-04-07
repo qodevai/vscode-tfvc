@@ -1,4 +1,5 @@
 import { TfvcCli } from '../tfvcCli';
+import { extractAttr } from '../xmlUtils';
 
 export interface ShelvesetInfo {
     name: string;
@@ -19,9 +20,9 @@ export async function shelve(
 ): Promise<void> {
     const args = ['shelve', name];
     if (comment) {
-        args.push(`-comment:${comment}`);
+        args.push(`-comment:"${comment.replace(/"/g, '\\"')}"`);
     }
-    args.push('-replace'); // overwrite if shelveset with same name exists
+    args.push('-replace');
     await cli.executeOrThrow(args);
 }
 
@@ -95,14 +96,12 @@ function parseShelvesetsText(text: string): ShelvesetInfo[] {
     const shelvesets: ShelvesetInfo[] = [];
     const lines = text.split('\n').map(l => l.trimEnd());
 
-    // Skip header/separator lines, parse "name;owner" or tabular format
     for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed || trimmed.startsWith('-') || /^shelveset/i.test(trimmed) || /^name/i.test(trimmed)) {
             continue;
         }
 
-        // Try "name;owner  date  comment" or split on multiple spaces
         const parts = trimmed.split(/\s{2,}/);
         if (parts.length >= 1) {
             const nameOwner = parts[0].split(';');
@@ -116,10 +115,4 @@ function parseShelvesetsText(text: string): ShelvesetInfo[] {
     }
 
     return shelvesets;
-}
-
-function extractAttr(attrs: string, name: string): string | undefined {
-    const regex = new RegExp(`${name}="([^"]*)"`, 'i');
-    const match = regex.exec(attrs);
-    return match ? match[1] : undefined;
 }

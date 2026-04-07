@@ -15,6 +15,7 @@ export class ReviewFileContentProvider implements vscode.TextDocumentContentProv
     private _onDidChange = new vscode.EventEmitter<vscode.Uri>();
     readonly onDidChange = this._onDidChange.event;
 
+    private static readonly MAX_CACHE_ENTRIES = 100;
     private contentCache = new Map<string, string>();
     private disposables: vscode.Disposable[] = [];
 
@@ -63,11 +64,16 @@ export class ReviewFileContentProvider implements vscode.TextDocumentContentProv
                 }
             }
 
+            if (this.contentCache.size >= ReviewFileContentProvider.MAX_CACHE_ENTRIES) {
+                // Evict oldest entry (first inserted)
+                const oldest = this.contentCache.keys().next().value;
+                if (oldest !== undefined) { this.contentCache.delete(oldest); }
+            }
             this.contentCache.set(cacheKey, content);
             return content;
         } catch (err) {
             logError(`Failed to fetch review file content: ${err}`);
-            return '';
+            throw new Error(`Failed to fetch file content: ${err}`);
         }
     }
 

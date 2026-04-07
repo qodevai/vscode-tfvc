@@ -20,7 +20,8 @@ export async function checkin(
     const args = ['checkin'];
 
     if (comment) {
-        args.push(`-comment:${comment}`);
+        // Wrap comment in quotes for TEE-CLC to handle special characters
+        args.push(`-comment:"${comment.replace(/"/g, '\\"')}"`);
     }
 
     if (workItems && workItems.length > 0) {

@@ -15,7 +15,7 @@ export class TfvcSCMProvider implements vscode.Disposable {
 
     constructor(
         private repo: TfvcRepository,
-        context: vscode.ExtensionContext,
+        _context: vscode.ExtensionContext,
         workspaceRoot: string
     ) {
         this.scm = vscode.scm.createSourceControl('tfvc', 'TFVC', vscode.Uri.file(workspaceRoot));
@@ -37,10 +37,10 @@ export class TfvcSCMProvider implements vscode.Disposable {
             this.repo.onDidChange(() => this.updateResourceGroups()),
         );
 
-        this.registerCommands(context);
+        this.registerCommands();
     }
 
-    private registerCommands(context: vscode.ExtensionContext): void {
+    private registerCommands(): void {
         const register = (id: string, handler: (...args: any[]) => Promise<void>) => {
             this.disposables.push(
                 vscode.commands.registerCommand(id, async (...args: any[]) => {
@@ -304,6 +304,7 @@ export class TfvcSCMProvider implements vscode.Disposable {
         const name = await vscode.window.showInputBox({
             prompt: 'Shelveset name',
             placeHolder: 'my-changes',
+            validateInput: validateShelvesetName,
         });
         if (!name) { return; }
 
@@ -429,4 +430,11 @@ export class TfvcSCMProvider implements vscode.Disposable {
             d.dispose();
         }
     }
+}
+
+function validateShelvesetName(value: string): string | undefined {
+    if (!value.trim()) { return 'Name cannot be empty'; }
+    if (value.startsWith('-')) { return 'Name cannot start with a dash'; }
+    if (/[;$<>|&]/.test(value)) { return 'Name contains invalid characters'; }
+    return undefined;
 }

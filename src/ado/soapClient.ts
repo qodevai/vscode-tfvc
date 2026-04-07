@@ -1,13 +1,12 @@
 /**
  * SOAP client for Azure DevOps DiscussionWebService.
  *
- * Ported from reviewer backend TfvcClient.post_inline_comment().
  * ADO has no REST API for writing inline code review discussions —
  * only SOAP via DiscussionWebService.asmx.
  */
 
-import * as https from 'https';
-import * as http from 'http';
+import { httpRequest } from './httpClient';
+import { extractAttr, decodeXmlEntities, escapeXmlAttr } from '../xmlUtils';
 
 const NS_SOAP = 'http://schemas.xmlsoap.org/soap/envelope/';
 const NS_DISC = 'http://schemas.microsoft.com/TeamFoundation/2012/Discussion';
@@ -15,7 +14,7 @@ const NS_DISC = 'http://schemas.microsoft.com/TeamFoundation/2012/Discussion';
 export interface InlineCommentParams {
     witId: number;
     versionUri: string;
-    itemPath: string;        // TFVC server path (e.g. $/Project/foo.ts)
+    itemPath: string;
     startLine: number;
     endLine: number;
     content: string;
@@ -56,16 +55,11 @@ export class AdoSoapClient {
         this.authHeader = 'Basic ' + Buffer.from(`:${pat}`).toString('base64');
     }
 
-    /**
-     * Post an inline line-anchored code review comment via SOAP.
-     * Returns the assigned DiscussionId.
-     */
     async postInlineComment(params: InlineCommentParams): Promise<number> {
         const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
         const startCol = params.startColumn ?? 1;
         const endCol = params.endColumn ?? 120;
 
-        // Build SOAP XML envelope (matching Python TfvcClient exactly)
         const xml = [
             '<?xml version="1.0" encoding="utf-8"?>',
             `<soap:Envelope xmlns:soap="${NS_SOAP}" xmlns:t="${NS_DISC}">`,
@@ -110,10 +104,8 @@ export class AdoSoapClient {
         ].join('\n');
 
         const url = `${this.base}/Discussion/V1.0/DiscussionWebService.asmx`;
-
         const response = await this.postSoap(url, xml, `${NS_DISC}/PublishDiscussions`);
 
-        // Parse response XML for DiscussionId (<int>123</int>)
         const intMatch = /<int[^>]*>(\d+)<\/int>/i.exec(response);
         if (!intMatch) {
             throw new Error(`PublishDiscussions: unexpected response: ${response.slice(0, 300)}`);
@@ -121,10 +113,6 @@ export class AdoSoapClient {
         return parseInt(intMatch[1], 10);
     }
 
-    /**
-     * Query all inline discussions for a Code Review Request work item.
-     * Uses SOAP QueryDiscussionsByCodeReviewRequest.
-     */
     async queryDiscussions(workItemId: number): Promise<DiscussionThread[]> {
         const xml = [
             '<?xml version="1.0" encoding="utf-8"?>',
@@ -144,52 +132,21 @@ export class AdoSoapClient {
     }
 
     private async postSoap(url: string, xml: string, soapAction: string): Promise<string> {
-        return new Promise((resolve, reject) => {
-            const parsedUrl = new URL(url);
-            const transport = parsedUrl.protocol === 'https:' ? https : http;
-            const req = transport.request(
-                {
-                    hostname: parsedUrl.hostname,
-                    port: parsedUrl.port,
-                    path: parsedUrl.pathname,
-                    method: 'POST',
-                    headers: {
-                        'Authorization': this.authHeader,
-                        'Content-Type': 'text/xml; charset=utf-8',
-                        'SOAPAction': soapAction,
-                    },
-                    timeout: 30000,
-                },
-                (res) => {
-                    let data = '';
-                    res.on('data', (chunk: Buffer) => { data += chunk.toString(); });
-                    res.on('end', () => {
-                        if ((res.statusCode || 0) >= 400) {
-                            reject(new Error(`SOAP error ${res.statusCode}: ${data.slice(0, 300)}`));
-                        } else {
-                            resolve(data);
-                        }
-                    });
-                }
-            );
-            req.on('error', reject);
-            req.on('timeout', () => {
-                req.destroy();
-                reject(new Error('SOAP request timed out'));
-            });
-            req.write(xml);
-            req.end();
+        const res = await httpRequest(url, {
+            method: 'POST',
+            headers: {
+                'Authorization': this.authHeader,
+                'Content-Type': 'text/xml; charset=utf-8',
+                'SOAPAction': soapAction,
+            },
+            body: xml,
         });
-    }
-}
 
-function escapeXmlAttr(value: string): string {
-    return value
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&apos;');
+        if (res.status >= 400) {
+            throw new Error(`SOAP error ${res.status}: ${res.body.slice(0, 300)}`);
+        }
+        return res.body;
+    }
 }
 
 function parseDiscussionsResponse(xml: string): DiscussionThread[] {
@@ -218,8 +175,7 @@ function parseDiscussionsResponse(xml: string): DiscussionThread[] {
         const itemPath = decodeXmlEntities(extractAttr(attrs, 'ItemPath') || '');
         const published = extractAttr(attrs, 'PublishedDate') || '';
 
-        // Parse Position
-        const posMatch = /<Position\s+([^/]*?)\/>/i.exec(body);
+        const posMatch = /<Position\s+([^/]*?)\//i.exec(body);
         let startLine = 1, endLine = 1, startCol = 1, endCol = 120;
         if (posMatch) {
             startLine = parseInt(extractAttr(posMatch[1], 'StartLine') || '1', 10);
@@ -242,7 +198,7 @@ function parseDiscussionsResponse(xml: string): DiscussionThread[] {
     }
 
     // Parse Comment elements
-    const commentRegex = /<Comment\s+([^/]*?)\/>/g;
+    const commentRegex = /<Comment\s+([^/]*?)\//g;
     let commentMatch: RegExpExecArray | null;
     while ((commentMatch = commentRegex.exec(xml)) !== null) {
         const attrs = commentMatch[1];
@@ -264,21 +220,4 @@ function parseDiscussionsResponse(xml: string): DiscussionThread[] {
     }
 
     return Array.from(threads.values()).filter(t => t.comments.length > 0);
-}
-
-function extractAttr(attrs: string, name: string): string | undefined {
-    const regex = new RegExp(`${name}="([^"]*)"`, 'i');
-    const match = regex.exec(attrs);
-    return match ? match[1] : undefined;
-}
-
-function decodeXmlEntities(s: string): string {
-    return s
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&apos;/g, "'")
-        .replace(/&#xA;/g, '\n')
-        .replace(/&#xD;/g, '\r');
 }

@@ -68,7 +68,7 @@ export class TfvcQuickDiffProvider implements vscode.QuickDiffProvider, vscode.T
             return content;
         } catch (err) {
             logError(`Failed to get server content for ${serverPath}: ${err}`);
-            return '';
+            throw new Error(`Failed to fetch server version of ${serverPath}: ${err}`);
         }
     }
 

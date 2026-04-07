@@ -1,5 +1,6 @@
 import * as path from 'path';
 import { TfvcCli } from '../tfvcCli';
+import { extractAttr } from '../xmlUtils';
 
 export type ChangeType = 'edit' | 'add' | 'delete' | 'rename' | 'branch' | 'merge' | 'lock' | 'undelete';
 
@@ -72,12 +73,6 @@ function parseStatusXml(xml: string): PendingChange[] {
     }
 
     return changes;
-}
-
-function extractAttr(attrs: string, name: string): string | undefined {
-    const regex = new RegExp(`${name}="([^"]*)"`, 'i');
-    const match = regex.exec(attrs);
-    return match ? match[1] : undefined;
 }
 
 /**

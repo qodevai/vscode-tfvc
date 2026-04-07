@@ -19,7 +19,7 @@ export class TfvcRepository implements vscode.Disposable {
     private _pendingChanges: PendingChange[] = [];
     private _excludedPaths = new Set<string>();
 
-    private refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    private refreshTimer: ReturnType<typeof setInterval> | undefined;
     private debounceTimer: ReturnType<typeof setTimeout> | undefined;
     private isRefreshing = false;
 
@@ -79,6 +79,9 @@ export class TfvcRepository implements vscode.Disposable {
             this._onDidChange.fire();
         } catch (err) {
             logError(`Refresh failed: ${err}`);
+            // Clear stale data so UI doesn't show outdated state
+            this._pendingChanges = [];
+            this._onDidChange.fire();
         } finally {
             this.isRefreshing = false;
         }
