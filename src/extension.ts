@@ -1,12 +1,12 @@
 import * as fs from 'fs';
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { TfvcCli } from './tfvcCli';
 import { TfvcRepository } from './tfvcRepository';
 import { TfvcSCMProvider } from './tfvcProvider';
 import { TfvcDecorationProvider } from './decorationProvider';
 import { TfvcQuickDiffProvider } from './quickDiffProvider';
 import { AutoCheckoutHandler } from './autoCheckout';
+import { WorkspaceState } from './workspace/workspaceState';
 import { AdoRestClient } from './ado/restClient';
 import { AdoSoapClient } from './ado/soapClient';
 import { ReviewTreeProvider, ReviewRequestItem, ReviewFileItem } from './providers/reviewTree';
@@ -16,6 +16,8 @@ import { ReviewCommentController } from './providers/comments';
 import { normalizeChangeLabel } from './changeType';
 import { getOutputChannel, logError } from './outputChannel';
 
+const STATE_DIR = '.vscode-tfvc';
+
 let disposables: vscode.Disposable[] = [];
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -24,54 +26,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     const config = vscode.workspace.getConfiguration('tfvc');
 
-    // Find workspace root
-    const workspaceRoot = findTfvcWorkspaceRoot();
-    if (!workspaceRoot) {
-        outputChannel.appendLine('No TFVC workspace detected (.tf/ folder not found). Extension inactive.');
+    // Find workspace root — check for .vscode-tfvc/ or adoProject config
+    const workspaceRoot = findWorkspaceRoot();
+    const hasConfig = !!config.get<string>('adoProject', '');
+
+    if (!workspaceRoot && !hasConfig) {
+        outputChannel.appendLine('No TFVC workspace detected (.vscode-tfvc/ not found, no tfvc.adoProject configured). Extension inactive.');
         return;
     }
-    outputChannel.appendLine(`TFVC workspace root: ${workspaceRoot}`);
 
-    // ── TEE-CLC layer (optional — for local workspace operations) ────
-
-    let repo: TfvcRepository | undefined;
-    const tfPath = TfvcCli.resolve();
-    outputChannel.appendLine(`Using tf executable: ${tfPath}`);
-
-    const cli = new TfvcCli(tfPath, workspaceRoot);
-    try {
-        const checkResult = await cli.execute(['help'], 10_000);
-        outputChannel.appendLine(`tf check output: ${checkResult.stdout.split('\n')[0]}`);
-        repo = new TfvcRepository(cli);
-    } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        outputChannel.appendLine(`tf CLI not available (${msg}). Local workspace operations disabled.`);
-        outputChannel.appendLine('Shelvesets and code reviews still work via REST API if PAT is configured.');
+    const root = workspaceRoot || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!root) {
+        outputChannel.appendLine('No workspace folder open. Extension inactive.');
+        return;
     }
 
-    // Wire SCM provider if CLI is available
-    if (repo) {
-        const provider = new TfvcSCMProvider(repo, context, workspaceRoot);
-        const decorations = new TfvcDecorationProvider(repo);
-        const quickDiff = new TfvcQuickDiffProvider(repo);
-        const autoCheckout = new AutoCheckoutHandler(repo, workspaceRoot);
-        disposables.push(repo, provider, decorations, quickDiff, autoCheckout);
+    outputChannel.appendLine(`TFVC workspace root: ${root}`);
 
-        // File watcher for .tf/ metadata changes
-        const watcher = vscode.workspace.createFileSystemWatcher(
-            new vscode.RelativePattern(workspaceRoot, '.tf/**')
-        );
-        watcher.onDidChange(() => repo!.debouncedRefresh());
-        watcher.onDidCreate(() => repo!.debouncedRefresh());
-        watcher.onDidDelete(() => repo!.debouncedRefresh());
-        disposables.push(watcher);
-
-        // Auto-refresh interval
-        const refreshInterval = config.get<number>('autoRefreshInterval', 0);
-        repo.startAutoRefresh(refreshInterval);
-    }
-
-    // ── ADO REST layer (for shelvesets, reviews, file content) ───────
+    // ── ADO REST layer (required for all operations) ─────────────────
 
     const reviewTree = new ReviewTreeProvider(undefined);
     const reviewContent = new ReviewFileContentProvider(undefined);
@@ -87,6 +59,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     let restClient: AdoRestClient | undefined;
     let soapClient: AdoSoapClient | undefined;
+    let repo: TfvcRepository | undefined;
 
     async function initRestClient(): Promise<void> {
         const cfg = vscode.workspace.getConfiguration('tfvc');
@@ -113,6 +86,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         reviewComments.setSoapClient(soapClient);
 
         outputChannel.appendLine(`ADO REST client initialized for ${baseUrl || `dev.azure.com/${org}`}/${project}`);
+
+        // Create workspace state + repository if not already done
+        if (!repo && restClient) {
+            const scope = restClient.scope;
+            const state = new WorkspaceState(root!, scope);
+            repo = new TfvcRepository(state, restClient);
+
+            const provider = new TfvcSCMProvider(repo, context, root!);
+            const decorations = new TfvcDecorationProvider(repo);
+            const quickDiff = new TfvcQuickDiffProvider(repo);
+            const autoCheckout = new AutoCheckoutHandler(repo, root!);
+            disposables.push(repo, provider, decorations, quickDiff, autoCheckout);
+
+            // File watcher for .vscode-tfvc/ metadata changes
+            const watcher = vscode.workspace.createFileSystemWatcher(
+                new vscode.RelativePattern(root!, `${STATE_DIR}/**`)
+            );
+            watcher.onDidChange(() => repo!.debouncedRefresh());
+            watcher.onDidCreate(() => repo!.debouncedRefresh());
+            watcher.onDidDelete(() => repo!.debouncedRefresh());
+            disposables.push(watcher);
+
+            // Auto-refresh interval
+            const refreshInterval = cfg.get<number>('autoRefreshInterval', 0);
+            repo.startAutoRefresh(refreshInterval);
+        }
     }
 
     await initRestClient();
@@ -158,6 +157,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 vscode.window.showInformationMessage('TFVC: PAT stored securely.');
             }
             await initRestClient();
+        }),
+    );
+
+    // ── Initialize workspace command ─────────────────────────────────
+
+    disposables.push(
+        vscode.commands.registerCommand('tfvc.initWorkspace', async () => {
+            if (!repo) {
+                vscode.window.showErrorMessage('TFVC: Configure tfvc.adoOrg, tfvc.adoProject, and set PAT first.');
+                return;
+            }
+
+            await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: 'TFVC: Initializing workspace...',
+                    cancellable: false,
+                },
+                async (progress) => {
+                    await repo!.initializeWorkspace((message) => {
+                        progress.report({ message });
+                    });
+                    vscode.window.showInformationMessage('TFVC: Workspace initialized successfully.');
+                }
+            );
         }),
     );
 
@@ -269,20 +293,19 @@ export function deactivate(): void {
     disposables = [];
 }
 
-function findTfvcWorkspaceRoot(): string | undefined {
+/** Find workspace root by looking for .vscode-tfvc/ directory. */
+function findWorkspaceRoot(): string | undefined {
     const folders = vscode.workspace.workspaceFolders;
     if (!folders) { return undefined; }
 
     for (const folder of folders) {
-        for (const dir of ['.tf', '$tf']) {
-            const tfDir = vscode.Uri.joinPath(folder.uri, dir);
-            try {
-                if (fs.existsSync(tfDir.fsPath)) {
-                    return folder.uri.fsPath;
-                }
-            } catch {
-                // Continue
+        const stateDir = vscode.Uri.joinPath(folder.uri, STATE_DIR);
+        try {
+            if (fs.existsSync(stateDir.fsPath)) {
+                return folder.uri.fsPath;
             }
+        } catch {
+            // Continue
         }
     }
 

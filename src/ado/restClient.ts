@@ -7,6 +7,7 @@
 
 import {
     TfvcItem,
+    TfvcItemFull,
     ShelvesetChange,
     ShelvesetInfo,
     WorkItem,
@@ -14,8 +15,11 @@ import {
     ReviewVerdict,
     VERDICT_STATUS_CODE,
     WiqlResult,
+    CreateChangesetRequest,
+    ChangesetResponse,
+    ChangesetInfo,
 } from './types';
-import { httpRequest, HttpResponse } from './httpClient';
+import { httpRequest, httpRequestBuffer, HttpResponse, HttpBufferResponse } from './httpClient';
 
 const MAX_BATCH_SIZE = 200;
 
@@ -116,6 +120,29 @@ export class AdoRestClient {
         return res.body;
     }
 
+    private async requestBuffer(url: string, method = 'GET', headers?: Record<string, string>): Promise<HttpBufferResponse> {
+        return httpRequestBuffer(url, {
+            method,
+            headers: { 'Authorization': this.authHeader, ...headers },
+        });
+    }
+
+    private async getBuffer(url: string): Promise<Buffer> {
+        const res = await this.requestBuffer(url);
+        if (res.status >= 400) {
+            throw new Error(`ADO download error ${res.status}: ${res.body.toString('utf8').slice(0, 200)}`);
+        }
+        return res.body;
+    }
+
+    private async del(path: string, params: Record<string, string> = {}): Promise<void> {
+        const url = this.buildUrl(path, params);
+        const res = await this.request(url, 'DELETE');
+        if (res.status >= 400) {
+            throw new Error(`ADO API error ${res.status}: ${res.body.slice(0, 500)}`);
+        }
+    }
+
     // ── Shelvesets ───────────────────────────────────────────────────────
 
     async listShelvesets(owner?: string): Promise<ShelvesetInfo[]> {
@@ -149,6 +176,80 @@ export class AdoRestClient {
             changeType: change.changeType || '',
             downloadUrl: change.item?.url || '',
         }));
+    }
+
+    // ── Items (workspace operations) ──────────────────────────────────
+
+    /** List items under a scope path (Full recursion by default). */
+    async listItems(scopePath?: string, recursionLevel = 'Full'): Promise<TfvcItemFull[]> {
+        const params: Record<string, string> = {
+            recursionLevel,
+        };
+        if (scopePath) {
+            params['scopePath'] = scopePath;
+        }
+        const data = await this.get<{ value: TfvcItemFull[]; count?: number }>('/_apis/tfvc/items', params);
+        return (data.value || []);
+    }
+
+    /** Download a file's content as a Buffer (for binary-safe downloads). */
+    async downloadItemBuffer(tfvcPath: string, version?: number): Promise<Buffer> {
+        const params: Record<string, string> = {
+            path: tfvcPath,
+            'api-version': this.apiVersion,
+        };
+        if (version !== undefined) {
+            params['versionType'] = 'Changeset';
+            params['version'] = String(version);
+        }
+        const url = this.buildUrl('/_apis/tfvc/items', params);
+        return this.getBuffer(url);
+    }
+
+    // ── Changesets ────────────────────────────────────────────────────
+
+    /** Create a new changeset (checkin). Returns the created changeset. */
+    async createChangeset(request: CreateChangesetRequest): Promise<ChangesetResponse> {
+        return this.post<ChangesetResponse>('/_apis/tfvc/changesets', request);
+    }
+
+    /** Get changeset history for a path. */
+    async getChangesets(options: { itemPath?: string; top?: number; skip?: number } = {}): Promise<ChangesetInfo[]> {
+        const params: Record<string, string> = {};
+        if (options.itemPath) {
+            params['searchCriteria.itemPath'] = options.itemPath;
+        }
+        if (options.top !== undefined) {
+            params['$top'] = String(options.top);
+        }
+        if (options.skip !== undefined) {
+            params['$skip'] = String(options.skip);
+        }
+        const data = await this.get<{ value: any[]; count?: number }>('/_apis/tfvc/changesets', params);
+        return (data.value || []).map((cs: any) => ({
+            changesetId: cs.changesetId,
+            author: cs.author?.displayName || cs.checkedInBy?.displayName || '',
+            createdDate: cs.createdDate || '',
+            comment: cs.comment || '',
+        }));
+    }
+
+    // ── Shelveset creation / deletion ─────────────────────────────────
+
+    /** Create a shelveset via REST. May not be available on all server versions. */
+    async createShelveset(name: string, changes: CreateChangesetRequest['changes'], comment?: string): Promise<void> {
+        const body = {
+            name,
+            comment: comment || '',
+            changes,
+        };
+        await this.post<unknown>('/_apis/tfvc/shelvesets', body);
+    }
+
+    /** Delete a shelveset. */
+    async deleteShelveset(name: string, owner: string): Promise<void> {
+        const shelveId = encodeURIComponent(`${name};${owner}`);
+        await this.del(`/_apis/tfvc/shelvesets/${shelveId}`);
     }
 
     // ── File content ────────────────────────────────────────────────────

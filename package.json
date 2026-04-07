@@ -20,8 +20,8 @@
     "code review"
   ],
   "activationEvents": [
-    "workspaceContains:**/.tf/**",
-    "workspaceContains:**/$tf/**"
+    "workspaceContains:**/.vscode-tfvc/**",
+    "onCommand:tfvc.initWorkspace"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -136,6 +136,12 @@
         "command": "tfvc.postComment",
         "title": "Post Inline Comment",
         "category": "TFVC"
+      },
+      {
+        "command": "tfvc.initWorkspace",
+        "title": "Initialize Workspace",
+        "category": "TFVC",
+        "icon": "$(folder-opened)"
       },
       {
         "command": "tfvc.setPat",
@@ -269,11 +275,6 @@
     "configuration": {
       "title": "TFVC",
       "properties": {
-        "tfvc.tfPath": {
-          "type": "string",
-          "default": "",
-          "description": "Path to the `tf` (TEE-CLC) executable. Leave empty to use `tf` from PATH. Only needed for local workspace operations (status, checkin, checkout, undo, get)."
-        },
         "tfvc.adoOrg": {
           "type": "string",
           "default": "",

@@ -1,8 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { TfvcRepository } from './tfvcRepository';
-import { PendingChange, ChangeType } from './commands/status';
-import { TfvcError } from './tfvcCli';
+import { TfvcRepository, PendingChange, ChangeType } from './tfvcRepository';
+import { TfvcError } from './errors';
 
 const TFVC_SCHEME = 'tfvc';
 

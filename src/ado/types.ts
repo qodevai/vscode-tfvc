@@ -62,3 +62,47 @@ export const VERDICT_STATUS_CODE: Record<ReviewVerdict, number> = {
 export interface WiqlResult {
     workItems: Array<{ id: number; url: string }>;
 }
+
+// ── Changeset creation types ──────────────────────────────────────────
+
+export interface TfvcChangePayload {
+    changeType: string;  // 'edit' | 'add' | 'delete'
+    item: {
+        path: string;
+        version?: number;
+    };
+    newContent?: {
+        content: string;
+        contentType: 'rawText' | 'base64Encoded';
+    };
+}
+
+export interface CreateChangesetRequest {
+    comment: string;
+    changes: TfvcChangePayload[];
+    workItems?: Array<{ id: number }>;
+}
+
+export interface ChangesetResponse {
+    changesetId: number;
+    url: string;
+    comment?: string;
+    createdDate?: string;
+}
+
+export interface ChangesetInfo {
+    changesetId: number;
+    author: string;
+    createdDate: string;
+    comment: string;
+}
+
+export interface TfvcItemFull {
+    path: string;
+    url: string;
+    contentUrl?: string;
+    isFolder: boolean;
+    version: number;
+    hashValue?: string;
+    size?: number;
+}
