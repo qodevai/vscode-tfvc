@@ -1,0 +1,337 @@
+{
+  "name": "vscode-tfvc",
+  "displayName": "TFVC",
+  "description": "Team Foundation Version Control (TFVC) source control integration for VS Code",
+  "version": "0.2.0",
+  "publisher": "janscheffler",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "SCM Providers"
+  ],
+  "keywords": [
+    "tfvc",
+    "tfs",
+    "azure devops",
+    "version control",
+    "source control",
+    "code review"
+  ],
+  "activationEvents": [
+    "workspaceContains:**/.tf/**",
+    "workspaceContains:**/$tf/**"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "tfvc.refresh",
+        "title": "Refresh",
+        "category": "TFVC",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "tfvc.checkin",
+        "title": "Check In",
+        "category": "TFVC",
+        "icon": "$(check)"
+      },
+      {
+        "command": "tfvc.sync",
+        "title": "Get Latest (Sync)",
+        "category": "TFVC",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "tfvc.checkout",
+        "title": "Check Out (Lock for Edit)",
+        "category": "TFVC"
+      },
+      {
+        "command": "tfvc.undo",
+        "title": "Undo",
+        "category": "TFVC",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "tfvc.undoAll",
+        "title": "Undo All Changes",
+        "category": "TFVC"
+      },
+      {
+        "command": "tfvc.add",
+        "title": "Add File",
+        "category": "TFVC"
+      },
+      {
+        "command": "tfvc.delete",
+        "title": "Delete File",
+        "category": "TFVC"
+      },
+      {
+        "command": "tfvc.include",
+        "title": "Include Change",
+        "category": "TFVC",
+        "icon": "$(add)"
+      },
+      {
+        "command": "tfvc.exclude",
+        "title": "Exclude Change",
+        "category": "TFVC",
+        "icon": "$(remove)"
+      },
+      {
+        "command": "tfvc.openDiff",
+        "title": "Open Diff",
+        "category": "TFVC",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "tfvc.openFile",
+        "title": "Open File",
+        "category": "TFVC",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "tfvc.shelve",
+        "title": "Shelve Changes",
+        "category": "TFVC"
+      },
+      {
+        "command": "tfvc.unshelve",
+        "title": "Unshelve Changes",
+        "category": "TFVC"
+      },
+      {
+        "command": "tfvc.shelvesets",
+        "title": "List Shelvesets",
+        "category": "TFVC",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "tfvc.history",
+        "title": "Show History",
+        "category": "TFVC"
+      },
+      {
+        "command": "tfvc.refreshReviews",
+        "title": "Refresh Code Reviews",
+        "category": "TFVC",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "tfvc.openReviewFileDiff",
+        "title": "Open Review File Diff",
+        "category": "TFVC"
+      },
+      {
+        "command": "tfvc.submitVerdict",
+        "title": "Submit Review Verdict",
+        "category": "TFVC",
+        "icon": "$(pass)"
+      },
+      {
+        "command": "tfvc.postComment",
+        "title": "Post Inline Comment",
+        "category": "TFVC"
+      }
+    ],
+    "menus": {
+      "scm/title": [
+        {
+          "command": "tfvc.checkin",
+          "group": "navigation",
+          "when": "scmProvider == tfvc"
+        },
+        {
+          "command": "tfvc.refresh",
+          "group": "navigation",
+          "when": "scmProvider == tfvc"
+        },
+        {
+          "command": "tfvc.sync",
+          "group": "navigation",
+          "when": "scmProvider == tfvc"
+        },
+        {
+          "command": "tfvc.undoAll",
+          "group": "1_modification",
+          "when": "scmProvider == tfvc"
+        },
+        {
+          "command": "tfvc.shelve",
+          "group": "2_shelve",
+          "when": "scmProvider == tfvc"
+        },
+        {
+          "command": "tfvc.unshelve",
+          "group": "2_shelve",
+          "when": "scmProvider == tfvc"
+        },
+        {
+          "command": "tfvc.shelvesets",
+          "group": "2_shelve",
+          "when": "scmProvider == tfvc"
+        }
+      ],
+      "scm/resourceState/context": [
+        {
+          "command": "tfvc.openDiff",
+          "group": "inline",
+          "when": "scmProvider == tfvc"
+        },
+        {
+          "command": "tfvc.openFile",
+          "group": "inline",
+          "when": "scmProvider == tfvc"
+        },
+        {
+          "command": "tfvc.undo",
+          "group": "inline",
+          "when": "scmProvider == tfvc"
+        },
+        {
+          "command": "tfvc.include",
+          "group": "1_modification",
+          "when": "scmProvider == tfvc && scmResourceGroup == excluded"
+        },
+        {
+          "command": "tfvc.exclude",
+          "group": "1_modification",
+          "when": "scmProvider == tfvc && scmResourceGroup == included"
+        },
+        {
+          "command": "tfvc.undo",
+          "group": "2_undo",
+          "when": "scmProvider == tfvc"
+        }
+      ],
+      "scm/resourceGroup/context": [
+        {
+          "command": "tfvc.undoAll",
+          "group": "1_modification",
+          "when": "scmProvider == tfvc"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "tfvc.refreshReviews",
+          "group": "navigation",
+          "when": "view == tfvcReviews"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "tfvc.submitVerdict",
+          "group": "inline",
+          "when": "view == tfvcReviews && viewItem == reviewRequest"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "tfvc.include",
+          "when": "false"
+        },
+        {
+          "command": "tfvc.exclude",
+          "when": "false"
+        },
+        {
+          "command": "tfvc.openDiff",
+          "when": "false"
+        },
+        {
+          "command": "tfvc.openFile",
+          "when": "false"
+        },
+        {
+          "command": "tfvc.openReviewFileDiff",
+          "when": "false"
+        }
+      ]
+    },
+    "views": {
+      "scm": [
+        {
+          "id": "tfvcReviews",
+          "name": "TFVC Code Reviews",
+          "when": "config.tfvc.pat"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "TFVC",
+      "properties": {
+        "tfvc.tfPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the `tf` (TEE-CLC) executable. Leave empty to use `tf` from PATH. Only needed for local workspace operations (status, checkin, checkout, undo, get)."
+        },
+        "tfvc.pat": {
+          "type": "string",
+          "default": "",
+          "description": "Azure DevOps Personal Access Token (PAT) with Code (Read) + Work Items (Read & Write) scopes. Used for REST API operations (shelvesets, code reviews, file content)."
+        },
+        "tfvc.adoOrg": {
+          "type": "string",
+          "default": "",
+          "description": "Azure DevOps organization name (e.g. 'myorg'). For cloud: dev.azure.com/{org}."
+        },
+        "tfvc.adoProject": {
+          "type": "string",
+          "default": "",
+          "description": "Azure DevOps project name (e.g. 'MyProject'). Used as scope for TFVC operations."
+        },
+        "tfvc.adoBaseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "On-prem Azure DevOps Server base URL (e.g. 'https://devops.example.com'). Leave empty for cloud."
+        },
+        "tfvc.adoCollectionPath": {
+          "type": "string",
+          "default": "",
+          "description": "On-prem TFS collection path (e.g. '/tfs/DefaultCollection'). Leave empty for cloud."
+        },
+        "tfvc.autoCheckout": {
+          "type": "string",
+          "enum": [
+            "disabled",
+            "onSave",
+            "onEdit"
+          ],
+          "default": "onSave",
+          "enumDescriptions": [
+            "Never auto-checkout files",
+            "Automatically checkout files when saving",
+            "Automatically checkout files when editing (may be slow)"
+          ],
+          "description": "When to automatically checkout files for editing."
+        },
+        "tfvc.autoRefreshInterval": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Auto-refresh interval in seconds. Set to 0 to disable."
+        },
+        "tfvc.showOutputOnError": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically show the TFVC output channel when a tf command fails."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.3"
+  }
+}
