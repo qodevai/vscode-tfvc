@@ -90,7 +90,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // Create workspace state + repository if not already done
         if (!repo && restClient) {
             const scope = restClient.scope;
-            const state = new WorkspaceState(root!, scope);
+            const state = new WorkspaceState(root!, scope, logError);
             repo = new TfvcRepository(state, restClient);
 
             const provider = new TfvcSCMProvider(repo, context, root!);
@@ -100,13 +100,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             disposables.push(repo, provider, decorations, quickDiff, autoCheckout);
 
             // File watcher for .vscode-tfvc/ metadata changes
-            const watcher = vscode.workspace.createFileSystemWatcher(
+            const stateWatcher = vscode.workspace.createFileSystemWatcher(
                 new vscode.RelativePattern(root!, `${STATE_DIR}/**`)
             );
-            watcher.onDidChange(() => repo!.debouncedRefresh());
-            watcher.onDidCreate(() => repo!.debouncedRefresh());
-            watcher.onDidDelete(() => repo!.debouncedRefresh());
-            disposables.push(watcher);
+            stateWatcher.onDidChange(() => repo!.debouncedRefresh());
+            stateWatcher.onDidCreate(() => repo!.debouncedRefresh());
+            stateWatcher.onDidDelete(() => repo!.debouncedRefresh());
+            disposables.push(stateWatcher);
+
+            // File watcher for workspace files — instant edit detection
+            const fileWatcher = vscode.workspace.createFileSystemWatcher(
+                new vscode.RelativePattern(root!, '**/*')
+            );
+            const ignoreChange = (uri: vscode.Uri) => {
+                const rel = path.relative(root!, uri.fsPath);
+                return rel.startsWith(STATE_DIR) || rel.startsWith('.git') || rel.startsWith('node_modules');
+            };
+            fileWatcher.onDidChange(uri => { if (!ignoreChange(uri)) { repo!.debouncedRefresh(500); } });
+            fileWatcher.onDidCreate(uri => { if (!ignoreChange(uri)) { repo!.debouncedRefresh(500); } });
+            fileWatcher.onDidDelete(uri => { if (!ignoreChange(uri)) { repo!.debouncedRefresh(500); } });
+            disposables.push(fileWatcher);
 
             // Auto-refresh interval
             const refreshInterval = cfg.get<number>('autoRefreshInterval', 0);

@@ -1,8 +1,9 @@
 import * as fs from 'fs';
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { WorkspaceState } from './workspace/workspaceState';
 import { PendingChange, CheckinResult, SyncResult, HistoryEntry, ChangeType } from './workspace/types';
-import { localToServer } from './workspace/pathMapping';
+import { localToServer, serverToLocal } from './workspace/pathMapping';
 import { AdoRestClient } from './ado/restClient';
 import { ShelvesetInfo } from './ado/types';
 import { TfvcError } from './errors';
@@ -270,7 +271,7 @@ export class TfvcRepository implements vscode.Disposable {
 
             for (const change of shelveChanges) {
                 const localPath = change.path.startsWith(this.state.getScope())
-                    ? require('./workspace/pathMapping').serverToLocal(change.path, this.state.getScope(), this.state.getRoot())
+                    ? serverToLocal(change.path, this.state.getScope(), this.state.getRoot())
                     : change.path;
 
                 const changeLabel = change.changeType.toLowerCase().split(/[,\s]+/)[0];
@@ -282,7 +283,7 @@ export class TfvcRepository implements vscode.Disposable {
                     const content = await this.restClient.fetchShelvedContent(
                         change.path, name, identity.displayName
                     );
-                    fs.mkdirSync(require('path').dirname(localPath), { recursive: true });
+                    fs.mkdirSync(path.dirname(localPath), { recursive: true });
                     try { fs.chmodSync(localPath, 0o644); } catch { /* may not exist */ }
                     fs.writeFileSync(localPath, content);
 

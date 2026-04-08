@@ -184,7 +184,15 @@ export class TfvcSCMProvider implements vscode.Disposable {
             { location: vscode.ProgressLocation.SourceControl, title: 'TFVC: Getting latest...' },
             async () => {
                 const results = await this.repo.getLatest();
-                vscode.window.showInformationMessage(`TFVC: Synced ${results.length} file(s).`);
+                const conflicts = results.filter(r => r.action === 'conflict');
+                const synced = results.filter(r => r.action !== 'conflict');
+                if (conflicts.length > 0) {
+                    vscode.window.showWarningMessage(
+                        `TFVC: Synced ${synced.length} file(s), ${conflicts.length} conflict(s) skipped (local edits).`
+                    );
+                } else {
+                    vscode.window.showInformationMessage(`TFVC: Synced ${synced.length} file(s).`);
+                }
             }
         );
     }

@@ -16,7 +16,7 @@ export interface CheckinResult {
 
 export interface SyncResult {
     path: string;
-    action: 'getting' | 'replacing' | 'deleting';
+    action: 'getting' | 'replacing' | 'deleting' | 'conflict';
 }
 
 export interface HistoryEntry {

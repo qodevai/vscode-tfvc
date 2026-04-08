@@ -21,7 +21,9 @@ import { computeFileHash } from './hashing';
 import { serverToLocal, localToServer } from './pathMapping';
 import { AdoRestClient } from '../ado/restClient';
 import { TfvcItemFull } from '../ado/types';
-import { logError } from '../outputChannel';
+
+/** Logger function — defaults to console.error, overridden at construction. */
+type LogFn = (message: string) => void;
 
 const STATE_DIR = '.vscode-tfvc';
 const BASELINE_FILE = 'baseline.json';
@@ -32,12 +34,15 @@ export class WorkspaceState {
     private baseline: BaselineState;
     private pending: PendingState;
     private readonly stateDir: string;
+    private readonly log: LogFn;
 
     constructor(
         private readonly root: string,
-        private readonly scope: string
+        private readonly scope: string,
+        logger?: LogFn
     ) {
         this.stateDir = path.join(root, STATE_DIR);
+        this.log = logger || console.error;
         this.baseline = { scope, root, version: 0, items: [] };
         this.pending = { adds: [], deletes: [], checkouts: [] };
         this.load();
@@ -57,7 +62,7 @@ export class WorkspaceState {
                 this.baseline = JSON.parse(fs.readFileSync(baselinePath, 'utf8'));
             }
         } catch (err) {
-            logError(`Failed to load baseline: ${err}`);
+            this.log(`Failed to load baseline: ${err}`);
         }
 
         try {
@@ -66,7 +71,7 @@ export class WorkspaceState {
                 this.pending = JSON.parse(fs.readFileSync(pendingPath, 'utf8'));
             }
         } catch (err) {
-            logError(`Failed to load pending state: ${err}`);
+            this.log(`Failed to load pending state: ${err}`);
         }
     }
 
@@ -192,8 +197,20 @@ export class WorkspaceState {
 
             onProgress?.(`Downloading (${i + 1}/${relevantItems.length}): ${path.basename(localPath)}`);
 
-            // Check if file is pending — skip to avoid overwriting local edits
-            if (this.pending.checkouts.includes(localPath) || this.pending.adds.includes(localPath)) {
+            // Check if file has local edits — report as conflict instead of overwriting
+            const hasLocalEdit = this.pending.checkouts.includes(localPath) || this.pending.adds.includes(localPath);
+            if (!hasLocalEdit && existing && fs.existsSync(localPath)) {
+                try {
+                    const currentHash = await computeFileHash(localPath);
+                    if (currentHash !== existing.hash) {
+                        // Locally modified but not explicitly checked out
+                        results.push({ path: localPath, action: 'conflict' });
+                        continue;
+                    }
+                } catch { /* file may be unreadable — proceed with download */ }
+            }
+            if (hasLocalEdit) {
+                results.push({ path: localPath, action: 'conflict' });
                 continue;
             }
 
@@ -441,7 +458,7 @@ export class WorkspaceState {
                 fs.writeFileSync(localPath, content);
                 fs.chmodSync(localPath, 0o444);
             } catch (err) {
-                logError(`Failed to restore ${serverPath}: ${err}`);
+                this.log(`Failed to restore ${serverPath}: ${err}`);
             }
         }
         this.pending.deletes = this.pending.deletes.filter(p => !serverPathSet.has(p));

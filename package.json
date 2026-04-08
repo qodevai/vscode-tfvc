@@ -328,6 +328,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
+    "test": "tsc -p tsconfig.test.json && node --test out-test/test/**/*.test.js",
     "package": "vsce package"
   },
   "devDependencies": {
