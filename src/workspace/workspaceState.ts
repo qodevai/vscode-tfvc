@@ -167,12 +167,30 @@ export class WorkspaceState {
     ): Promise<SyncResult[]> {
         const results: SyncResult[] = [];
 
-        // Fetch current server state
-        const scopePath = paths && paths.length === 1
-            ? localToServer(paths[0], this.scope, this.root)
-            : this.scope;
-        const items = await restClient.listItems(scopePath);
-        const fileItems = items.filter(i => !i.isFolder);
+        // Fetch current server state. When specific paths are requested, issue
+        // one listItems call per path instead of listing the entire workspace
+        // and filtering — on large repos the full list can be 100k+ entries.
+        let fileItems: TfvcItemFull[];
+        let scopePath: string;
+        const pathSet = paths ? new Set(paths.map(p => localToServer(p, this.scope, this.root))) : null;
+        if (paths && paths.length > 0) {
+            const seen = new Map<string, TfvcItemFull>();
+            for (const p of paths) {
+                const serverPath = localToServer(p, this.scope, this.root);
+                const items = await restClient.listItems(serverPath);
+                for (const item of items) {
+                    if (!item.isFolder) { seen.set(item.path, item); }
+                }
+            }
+            fileItems = Array.from(seen.values());
+            scopePath = paths.length === 1
+                ? localToServer(paths[0], this.scope, this.root)
+                : this.scope;
+        } else {
+            const items = await restClient.listItems(this.scope);
+            fileItems = items.filter(i => !i.isFolder);
+            scopePath = this.scope;
+        }
 
         // Build lookup of current baseline by server path
         const baselineMap = new Map<string, BaselineItem>();
@@ -180,10 +198,10 @@ export class WorkspaceState {
             baselineMap.set(item.serverPath, item);
         }
 
-        // Filter to requested paths if specified
-        const pathSet = paths ? new Set(paths.map(p => localToServer(p, this.scope, this.root))) : null;
+        // With per-path listItems we still need to confirm we only touch the
+        // requested scope (recursive folder queries could return extras).
         const relevantItems = pathSet
-            ? fileItems.filter(i => pathSet.has(i.path))
+            ? fileItems.filter(i => pathSet.has(i.path) || isPathUnderAny(i.path, pathSet))
             : fileItems;
 
         for (let i = 0; i < relevantItems.length; i++) {
@@ -628,4 +646,17 @@ export class WorkspaceState {
     getRoot(): string {
         return this.root;
     }
+}
+
+/**
+ * Check whether a server path is under any of the requested scope paths.
+ * Used to keep recursive listItems results within the user-requested scope
+ * when a directory path resolves to its children via 'Full' recursion.
+ */
+function isPathUnderAny(serverPath: string, scopes: Set<string>): boolean {
+    for (const scope of scopes) {
+        if (serverPath === scope) { return true; }
+        if (serverPath.startsWith(scope + '/')) { return true; }
+    }
+    return false;
 }

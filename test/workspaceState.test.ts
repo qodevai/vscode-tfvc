@@ -278,6 +278,38 @@ describe('WorkspaceState', () => {
         assert.strictEqual(fs.readFileSync(localPath, 'utf8'), localContent);
     });
 
+    it('syncBaseline issues per-path listItems calls when paths are scoped (I14)', async () => {
+        const stateDir = path.join(tmpDir, '.vscode-tfvc');
+        fs.mkdirSync(stateDir, { recursive: true });
+        fs.writeFileSync(path.join(stateDir, 'baseline.json'), JSON.stringify({ scope, root: tmpDir, version: 0, items: [] }));
+        fs.writeFileSync(path.join(stateDir, 'pending.json'), '{"adds":[],"deletes":[],"checkouts":[]}');
+
+        const state = new WorkspaceState(tmpDir, scope);
+
+        const listCalls: string[] = [];
+        const mockRestClient = {
+            listItems: async (scopePath: string) => {
+                listCalls.push(scopePath);
+                // Return a single matching file per requested scope
+                return [{ path: scopePath, url: '', isFolder: false, version: 1 }];
+            },
+            downloadItemBuffer: async () => Buffer.from('content'),
+        } as any;
+
+        const p1 = path.join(tmpDir, 'a.txt');
+        const p2 = path.join(tmpDir, 'b.txt');
+        await state.syncBaseline(mockRestClient, [p1, p2]);
+
+        // Two requested paths ⇒ exactly two listItems calls, neither of which
+        // scans the entire workspace scope.
+        assert.strictEqual(listCalls.length, 2, 'one listItems call per requested path');
+        assert.ok(!listCalls.includes(scope), 'should not enumerate the whole workspace scope');
+        assert.deepStrictEqual(listCalls.sort(), [
+            '$/TestProject/a.txt',
+            '$/TestProject/b.txt',
+        ]);
+    });
+
     it('undoChanges recreates missing parent directories (C8)', async () => {
         // Seed baseline with a file under a subdirectory
         const stateDir = path.join(tmpDir, '.vscode-tfvc');
