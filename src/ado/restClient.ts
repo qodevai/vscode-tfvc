@@ -18,6 +18,10 @@ import {
     CreateChangesetRequest,
     ChangesetResponse,
     ChangesetInfo,
+    AdoShelvesetResponse,
+    AdoChangeResponse,
+    AdoChangesetResponse,
+    AdoWorkItemResponse,
 } from './types';
 import { httpRequest, httpRequestBuffer, HttpResponse, HttpBufferResponse, buildBasicAuthHeader } from './httpClient';
 
@@ -149,8 +153,8 @@ export class AdoRestClient {
         const params: Record<string, string> = {};
         if (owner) { params['owner'] = owner; }
 
-        const data = await this.get<AdoListResponse<any>>('/_apis/tfvc/shelvesets', params);
-        return (data.value || []).map((s: any) => ({
+        const data = await this.get<AdoListResponse<AdoShelvesetResponse>>('/_apis/tfvc/shelvesets', params);
+        return (data.value || []).map((s) => ({
             name: s.name || '',
             owner: s.owner?.displayName || '',
             ownerUniqueName: s.owner?.uniqueName || '',
@@ -161,8 +165,8 @@ export class AdoRestClient {
 
     async listShelvesetChanges(shelvesetName: string, shelvesetOwner: string): Promise<ShelvesetChange[]> {
         const shelveId = encodeURIComponent(`${shelvesetName};${shelvesetOwner}`);
-        const data = await this.get<AdoListResponse<any>>(`/_apis/tfvc/shelvesets/${shelveId}/changes`);
-        return (data.value || []).map((change: any) => ({
+        const data = await this.get<AdoListResponse<AdoChangeResponse>>(`/_apis/tfvc/shelvesets/${shelveId}/changes`);
+        return (data.value || []).map((change) => ({
             path: change.item?.path || '',
             changeType: change.changeType || '',
             downloadUrl: change.item?.url || '',
@@ -170,8 +174,8 @@ export class AdoRestClient {
     }
 
     async listChangesetChanges(changesetId: number): Promise<ShelvesetChange[]> {
-        const data = await this.get<AdoListResponse<any>>(`/_apis/tfvc/changesets/${changesetId}/changes`);
-        return (data.value || []).map((change: any) => ({
+        const data = await this.get<AdoListResponse<AdoChangeResponse>>(`/_apis/tfvc/changesets/${changesetId}/changes`);
+        return (data.value || []).map((change) => ({
             path: change.item?.path || '',
             changeType: change.changeType || '',
             downloadUrl: change.item?.url || '',
@@ -225,9 +229,9 @@ export class AdoRestClient {
         if (options.skip !== undefined) {
             params['$skip'] = String(options.skip);
         }
-        const data = await this.get<{ value: any[]; count?: number }>('/_apis/tfvc/changesets', params);
-        return (data.value || []).map((cs: any) => ({
-            changesetId: cs.changesetId,
+        const data = await this.get<AdoListResponse<AdoChangesetResponse>>('/_apis/tfvc/changesets', params);
+        return (data.value || []).map((cs) => ({
+            changesetId: cs.changesetId ?? 0,
             author: cs.author?.displayName || cs.checkedInBy?.displayName || '',
             createdDate: cs.createdDate || '',
             comment: cs.comment || '',
@@ -323,21 +327,22 @@ export class AdoRestClient {
         const reviews: CodeReviewRequest[] = [];
         for (let i = 0; i < allIds.length; i += MAX_BATCH_SIZE) {
             const batch = allIds.slice(i, i + MAX_BATCH_SIZE);
-            const items = await this.get<AdoListResponse<any>>('/_apis/wit/workitems', {
+            const items = await this.get<AdoListResponse<AdoWorkItemResponse>>('/_apis/wit/workitems', {
                 ids: batch.join(','),
                 fields,
             });
             for (const wit of items.value || []) {
                 const f = wit.fields || {};
+                const createdBy = f['System.CreatedBy'] as { displayName?: string } | string | undefined;
                 reviews.push({
                     id: wit.id,
-                    title: f['System.Title'] || '',
-                    state: f['System.State'] || '',
-                    createdDate: f['System.CreatedDate'] || '',
-                    createdBy: f['System.CreatedBy']?.displayName || f['System.CreatedBy'] || '',
-                    shelvesetName: f['Microsoft.VSTS.CodeReview.Context'] || '',
-                    shelvesetOwner: f['Microsoft.VSTS.CodeReview.ContextOwner'] || '',
-                    contextType: f['Microsoft.VSTS.CodeReview.ContextType'] || '',
+                    title: (f['System.Title'] as string) || '',
+                    state: (f['System.State'] as string) || '',
+                    createdDate: (f['System.CreatedDate'] as string) || '',
+                    createdBy: typeof createdBy === 'string' ? createdBy : (createdBy?.displayName || ''),
+                    shelvesetName: (f['Microsoft.VSTS.CodeReview.Context'] as string) || '',
+                    shelvesetOwner: (f['Microsoft.VSTS.CodeReview.ContextOwner'] as string) || '',
+                    contextType: (f['Microsoft.VSTS.CodeReview.ContextType'] as string) || '',
                 });
             }
         }

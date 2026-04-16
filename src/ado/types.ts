@@ -106,3 +106,45 @@ export interface TfvcItemFull {
     hashValue?: string;
     size?: number;
 }
+
+// ── Raw ADO API response shapes ───────────────────────────────────────
+// These describe the ADO REST payloads we actually consume — partial by
+// design, since ADO returns many fields we don't use.
+
+export interface AdoIdentityRef {
+    id?: string;
+    displayName?: string;
+    uniqueName?: string;
+}
+
+export interface AdoShelvesetResponse {
+    name?: string;
+    owner?: AdoIdentityRef;
+    createdDate?: string;
+    comment?: string;
+}
+
+export interface AdoItemRef {
+    path?: string;
+    url?: string;
+    version?: number;
+}
+
+export interface AdoChangeResponse {
+    changeType?: string;
+    item?: AdoItemRef;
+}
+
+export interface AdoChangesetResponse {
+    changesetId?: number;
+    createdDate?: string;
+    comment?: string;
+    author?: AdoIdentityRef;
+    checkedInBy?: AdoIdentityRef;
+}
+
+export interface AdoWorkItemResponse {
+    id: number;
+    fields?: Record<string, unknown>;
+    relations?: WorkItemRelation[];
+}
