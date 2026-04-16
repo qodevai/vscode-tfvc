@@ -193,6 +193,54 @@ describe('WorkspaceState', () => {
         assert.strictEqual(changes.length, 0);
     });
 
+    it('syncBaseline refuses to wipe baseline when server returns no items (C3)', async () => {
+        // Seed baseline with a tracked file
+        const stateDir = path.join(tmpDir, '.vscode-tfvc');
+        fs.mkdirSync(stateDir, { recursive: true });
+        const filePath = path.join(tmpDir, 'important.txt');
+        const content = 'important content';
+        fs.writeFileSync(filePath, content);
+        fs.chmodSync(filePath, 0o444);
+        const hash = md5base64(content);
+        const mtime = fs.statSync(filePath).mtimeMs;
+        const baseline = {
+            scope,
+            root: tmpDir,
+            version: 5,
+            items: [{
+                serverPath: '$/TestProject/important.txt',
+                localPath: filePath,
+                version: 5,
+                hash,
+                mtime,
+                isFolder: false,
+            }],
+        };
+        fs.writeFileSync(path.join(stateDir, 'baseline.json'), JSON.stringify(baseline));
+        fs.writeFileSync(path.join(stateDir, 'pending.json'), '{"adds":[],"deletes":[],"checkouts":[]}');
+
+        const state = new WorkspaceState(tmpDir, scope);
+
+        // Mock a rest client that returns an empty list (simulating transient failure)
+        const mockRestClient = {
+            listItems: async () => [],
+            downloadItemBuffer: async () => Buffer.from(''),
+        } as any;
+
+        await assert.rejects(
+            () => state.syncBaseline(mockRestClient),
+            /Refusing to delete/,
+            'syncBaseline should throw on suspicious empty response'
+        );
+
+        // File must still exist
+        assert.ok(fs.existsSync(filePath), 'local file should not be deleted');
+
+        // Baseline must be preserved on disk
+        const persistedBaseline = JSON.parse(fs.readFileSync(path.join(stateDir, 'baseline.json'), 'utf8'));
+        assert.strictEqual(persistedBaseline.items.length, 1);
+    });
+
     it('local shelf round-trip: save and apply', async () => {
         const stateDir = path.join(tmpDir, '.vscode-tfvc');
         fs.mkdirSync(stateDir, { recursive: true });

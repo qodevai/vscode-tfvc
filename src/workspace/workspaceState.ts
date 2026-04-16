@@ -21,6 +21,7 @@ import { computeFileHash } from './hashing';
 import { serverToLocal, localToServer } from './pathMapping';
 import { AdoRestClient } from '../ado/restClient';
 import { TfvcItemFull } from '../ado/types';
+import { TfvcError } from '../errors';
 
 /** Logger function — defaults to console.error, overridden at construction. */
 type LogFn = (message: string) => void;
@@ -243,7 +244,21 @@ export class WorkspaceState {
             }
         }
 
-        // Handle server deletions: files in baseline but not on server
+        // Handle server deletions: files in baseline but not on server.
+        // Safety guard: an empty server response for a full (unscoped) sync is
+        // almost certainly a transient API issue, not "everything was deleted".
+        // Refuse to wipe the entire baseline in that case — require an explicit
+        // path scope if the user really wants to process removals.
+        const baselineInScope = pathSet
+            ? this.baseline.items.filter(i => pathSet.has(i.serverPath))
+            : this.baseline.items;
+        if (fileItems.length === 0 && baselineInScope.length > 0 && !pathSet) {
+            throw new TfvcError(
+                `Server returned no items for ${scopePath}, but ${baselineInScope.length} files are tracked locally. ` +
+                `Refusing to delete — this is likely a transient server issue. Retry the sync.`
+            );
+        }
+
         const serverPaths = new Set(fileItems.map(i => i.path));
         const toRemove: BaselineItem[] = [];
         for (const item of this.baseline.items) {
