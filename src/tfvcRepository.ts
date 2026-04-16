@@ -333,8 +333,25 @@ export class TfvcRepository implements vscode.Disposable {
         }));
     }
 
-    async getServerContent(serverPath: string, _version?: string): Promise<string> {
-        return this.restClient.fetchItemContent(serverPath);
+    /**
+     * Fetch file content from the server. When `version` is omitted, returns
+     * HEAD. For diffs against the user's synced state, prefer the baseline
+     * version (see `getBaselineServerContent`) so local edits diff against
+     * what the user actually has, not a newer server revision.
+     */
+    async getServerContent(serverPath: string, version?: number): Promise<string> {
+        return this.restClient.fetchItemContent(serverPath, version);
+    }
+
+    /**
+     * Fetch the version of a file that matches the user's current baseline —
+     * i.e. the server revision the user last synced. This is what quick-diff
+     * should compare against so in-flight edits aren't mixed with server-side
+     * changes the user hasn't pulled yet.
+     */
+    async getBaselineServerContent(serverPath: string): Promise<string> {
+        const baseline = this.state.getBaselineItemByServer(serverPath);
+        return this.restClient.fetchItemContent(serverPath, baseline?.version);
     }
 
     /** Initialize the workspace (first-time setup). */

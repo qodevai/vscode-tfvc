@@ -63,7 +63,9 @@ export class TfvcQuickDiffProvider implements vscode.QuickDiffProvider, vscode.T
         }
 
         try {
-            const content = await this.repo.getServerContent(serverPath);
+            // Diff against the baseline version the user last synced, not HEAD —
+            // otherwise newer server-side changes show up mixed with local edits.
+            const content = await this.repo.getBaselineServerContent(serverPath);
             this.contentCache.set(serverPath, { content, timestamp: Date.now() });
             return content;
         } catch (err) {

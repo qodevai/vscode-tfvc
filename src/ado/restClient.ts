@@ -254,12 +254,20 @@ export class AdoRestClient {
 
     // ── File content ────────────────────────────────────────────────────
 
-    /** Fetch the latest committed version of a file as raw text. */
-    async fetchItemContent(tfvcPath: string): Promise<string> {
-        const qs = new URLSearchParams({
+    /**
+     * Fetch a file as raw text. Passes no version parameter to get HEAD, or
+     * pins to a specific changeset when `version` is provided.
+     */
+    async fetchItemContent(tfvcPath: string, version?: number): Promise<string> {
+        const params: Record<string, string> = {
             path: tfvcPath,
             'api-version': this.apiVersion,
-        }).toString();
+        };
+        if (version !== undefined) {
+            params.versionType = 'Changeset';
+            params.version = String(version);
+        }
+        const qs = new URLSearchParams(params).toString();
         const url = `${this.base}/_apis/tfvc/items?${qs}`;
         return this.getRaw(url);
     }
