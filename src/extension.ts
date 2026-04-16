@@ -63,7 +63,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     async function initRestClient(): Promise<void> {
         const cfg = vscode.workspace.getConfiguration('tfvc');
-        const pat = await context.secrets.get('tfvc.pat') || cfg.get<string>('pat', '');
+        const pat = await context.secrets.get('tfvc.pat') || '';
         const org = cfg.get<string>('adoOrg', '');
         const project = cfg.get<string>('adoProject', '');
         const baseUrl = cfg.get<string>('adoBaseUrl', '');
