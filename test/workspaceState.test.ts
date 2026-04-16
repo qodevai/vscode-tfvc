@@ -241,6 +241,43 @@ describe('WorkspaceState', () => {
         assert.strictEqual(persistedBaseline.items.length, 1);
     });
 
+    it('syncBaseline reports conflict when new server file collides with local file (C4)', async () => {
+        // No baseline entry for this path; a local file already exists there.
+        const stateDir = path.join(tmpDir, '.vscode-tfvc');
+        fs.mkdirSync(stateDir, { recursive: true });
+        fs.writeFileSync(path.join(stateDir, 'baseline.json'), JSON.stringify({ scope, root: tmpDir, version: 0, items: [] }));
+        fs.writeFileSync(path.join(stateDir, 'pending.json'), '{"adds":[],"deletes":[],"checkouts":[]}');
+
+        const localPath = path.join(tmpDir, 'collision.txt');
+        const localContent = 'my local work';
+        fs.writeFileSync(localPath, localContent);
+
+        const state = new WorkspaceState(tmpDir, scope);
+
+        let downloadCalled = false;
+        const mockRestClient = {
+            listItems: async () => [{
+                path: '$/TestProject/collision.txt',
+                url: '',
+                isFolder: false,
+                version: 1,
+            }],
+            downloadItemBuffer: async () => {
+                downloadCalled = true;
+                return Buffer.from('server content');
+            },
+        } as any;
+
+        const results = await state.syncBaseline(mockRestClient);
+
+        assert.strictEqual(downloadCalled, false, 'should not download when local file collides');
+        const conflicts = results.filter(r => r.action === 'conflict');
+        assert.strictEqual(conflicts.length, 1);
+        assert.strictEqual(conflicts[0].path, localPath);
+        // Local content preserved
+        assert.strictEqual(fs.readFileSync(localPath, 'utf8'), localContent);
+    });
+
     it('local shelf round-trip: save and apply', async () => {
         const stateDir = path.join(tmpDir, '.vscode-tfvc');
         fs.mkdirSync(stateDir, { recursive: true });

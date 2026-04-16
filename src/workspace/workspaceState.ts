@@ -198,9 +198,19 @@ export class WorkspaceState {
 
             onProgress?.(`Downloading (${i + 1}/${relevantItems.length}): ${path.basename(localPath)}`);
 
-            // Check if file has local edits — report as conflict instead of overwriting
+            // Check if file has local edits — report as conflict instead of overwriting.
             const hasLocalEdit = this.pending.checkouts.includes(localPath) || this.pending.adds.includes(localPath);
-            if (!hasLocalEdit && existing && fs.existsSync(localPath)) {
+            if (hasLocalEdit) {
+                results.push({ path: localPath, action: 'conflict' });
+                continue;
+            }
+            if (fs.existsSync(localPath)) {
+                if (!existing) {
+                    // New server file colliding with an untracked local file.
+                    // Don't silently overwrite — the local copy might be the user's work.
+                    results.push({ path: localPath, action: 'conflict' });
+                    continue;
+                }
                 try {
                     const currentHash = await computeFileHash(localPath);
                     if (currentHash !== existing.hash) {
@@ -208,11 +218,12 @@ export class WorkspaceState {
                         results.push({ path: localPath, action: 'conflict' });
                         continue;
                     }
-                } catch { /* file may be unreadable — proceed with download */ }
-            }
-            if (hasLocalEdit) {
-                results.push({ path: localPath, action: 'conflict' });
-                continue;
+                } catch (err) {
+                    // Fail loud: an unreadable file is suspicious, don't overwrite blindly.
+                    this.log(`Could not hash ${localPath} during sync: ${err}`);
+                    results.push({ path: localPath, action: 'conflict' });
+                    continue;
+                }
             }
 
             fs.mkdirSync(path.dirname(localPath), { recursive: true });
