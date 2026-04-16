@@ -333,26 +333,29 @@ export class WorkspaceState {
         for (const item of this.baseline.items) {
             if (item.isFolder) { continue; }
             if (deletedServerPaths.has(item.serverPath)) { continue; }
-            if (!fs.existsSync(item.localPath)) { continue; }
 
+            // Single stat handles both existence and mtime; saves one syscall
+            // per tracked file on large repos.
+            let stat: fs.Stats;
             try {
-                const stat = fs.statSync(item.localPath);
-
-                // Fast path: if mtime hasn't changed, skip hashing
-                if (Math.abs(stat.mtimeMs - item.mtime) < 1) {
-                    continue;
-                }
-
-                const currentHash = await computeFileHash(item.localPath);
-                if (currentHash !== item.hash) {
-                    changes.push({
-                        localPath: item.localPath,
-                        serverPath: item.serverPath,
-                        changeType: 'edit',
-                    });
-                }
+                stat = fs.statSync(item.localPath);
             } catch {
                 // File may have been deleted externally — skip
+                continue;
+            }
+
+            // Fast path: if mtime hasn't changed, skip hashing
+            if (Math.abs(stat.mtimeMs - item.mtime) < 1) {
+                continue;
+            }
+
+            const currentHash = await computeFileHash(item.localPath);
+            if (currentHash !== item.hash) {
+                changes.push({
+                    localPath: item.localPath,
+                    serverPath: item.serverPath,
+                    changeType: 'edit',
+                });
             }
         }
 
