@@ -1,0 +1,66 @@
+# Changelog
+
+All notable changes to the TFVC extension are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.3.1]
+
+### Added
+- Marketplace publishing: `README.md`, `CHANGELOG.md`, `LICENSE`, marketplace metadata in `package.json` (`publisher`, `repository`, `bugs`, `homepage`), and `@vscode/vsce` as a dev dependency.
+- GitHub Actions workflow (`.github/workflows/ci.yml`) with test + publish jobs. Publish job runs on tags matching `v*` and verifies `package.json` version matches the git tag.
+
+### Changed
+- Extension ID renamed from `vscode-tfvc` to `tfvc` (now published as `qodev.tfvc`).
+
+## [0.3.0]
+
+### Added
+- Unit tests for `pathMapping`, file hashing, and `workspaceState` (27 tests).
+- Workspace file watcher for instant edit detection in the SCM sidebar.
+- Conflict detection in `getLatest()` when both server and local copies have changed.
+
+### Changed
+- Decoupled `workspaceState` from the `vscode` module via an injectable logger.
+- Replaced inline `require()` calls in `unshelve()` with proper imports.
+- Updated `.vscodeignore` and `.gitignore` to exclude test artifacts.
+
+## [0.2.0]
+
+### Added
+- `TFVC: Initialize Workspace` command for first-time workspace setup.
+- New `src/workspace/` module: state manager, path mapping, file hashing.
+- Expanded REST client: `listItems`, `createChangeset`, `getChangesets`, `createShelveset`, `deleteShelveset`, `downloadItemBuffer`.
+
+### Changed
+- **All TFVC operations now use the ADO REST API** plus a local workspace state manager that tracks baselines and pending changes in `.vscode-tfvc/`. No `tf` CLI or TEE-CLC install is required.
+- Activation now triggers on `.vscode-tfvc/` instead of `.tf/`.
+- `TfvcRepository` rewritten to delegate to `WorkspaceState` + `AdoRestClient`.
+
+### Removed
+- TEE-CLC (`tf` CLI) dependency and all 10 command handlers (`status`, `checkin`, `checkout`, `get`, `undo`, `add`, `delete`, `shelve`, `history`, `diff`).
+- `tfvc.tfPath` setting (no longer needed).
+
+## [0.1.0]
+
+### Added
+- Initial release: VS Code extension for Team Foundation Version Control.
+- SCM sidebar with pending changes (Included / Excluded / Conflicts groups).
+- Auto-checkout on save or edit for read-only files.
+- File explorer decorations (M / A / D / C badges).
+- Quick diff via `tf print` (server vs local).
+- ADO REST client for shelvesets, code reviews, and file content.
+- ADO SOAP client for reading and writing inline code review discussions.
+- Code review tree view with file diffs (base vs shelved/changeset).
+- Inline comment display via VS Code's Comments API.
+- Review verdict submission (Looks Good / With Comments / Needs Work / Declined).
+- Support for both cloud (`dev.azure.com`) and on-prem Azure DevOps Server.
+
+### Security
+- Moved PAT storage from plaintext settings to VS Code's SecretStorage (via `TFVC: Set PAT` command).
+- Escaped single quotes in project name to prevent WIQL injection.
+- Validated shelveset names to prevent CLI argument injection.
+- Quoted checkin and shelve comments for safe TEE-CLC handling.

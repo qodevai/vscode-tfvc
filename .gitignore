@@ -3,3 +3,7 @@ out-test/
 node_modules/
 *.vsix
 .vscode-test/
+.npm/
+coverage/
+.env
+.env.local

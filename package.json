@@ -1,10 +1,18 @@
 {
-  "name": "vscode-tfvc",
+  "name": "tfvc",
   "displayName": "TFVC",
   "description": "Team Foundation Version Control (TFVC) source control integration for VS Code",
-  "version": "0.3.0",
-  "publisher": "janscheffler",
+  "version": "0.3.1",
+  "publisher": "qodev",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/qodevai/vscode-tfvc.git"
+  },
+  "bugs": {
+    "url": "https://github.com/qodevai/vscode-tfvc/issues"
+  },
+  "homepage": "https://github.com/qodevai/vscode-tfvc#readme",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -329,11 +337,12 @@
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
     "test": "tsc -p tsconfig.test.json && node --test out-test/test/**/*.test.js",
-    "package": "vsce package"
+    "package": "vsce package --no-dependencies"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.9.0",
     "typescript": "^5.3.3"
   }
 }
