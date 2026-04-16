@@ -5,7 +5,7 @@
  * only SOAP via DiscussionWebService.asmx.
  */
 
-import { httpRequest } from './httpClient';
+import { httpRequest, buildBasicAuthHeader } from './httpClient';
 import { extractAttr, decodeXmlEntities, escapeXmlAttr } from '../xmlUtils';
 
 const NS_SOAP = 'http://schemas.xmlsoap.org/soap/envelope/';
@@ -52,7 +52,7 @@ export class AdoSoapClient {
 
     constructor(base: string, pat: string) {
         this.base = base;
-        this.authHeader = 'Basic ' + Buffer.from(`:${pat}`).toString('base64');
+        this.authHeader = buildBasicAuthHeader(pat);
     }
 
     async postInlineComment(params: InlineCommentParams): Promise<number> {

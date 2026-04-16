@@ -19,7 +19,7 @@ import {
     ChangesetResponse,
     ChangesetInfo,
 } from './types';
-import { httpRequest, httpRequestBuffer, HttpResponse, HttpBufferResponse } from './httpClient';
+import { httpRequest, httpRequestBuffer, HttpResponse, HttpBufferResponse, buildBasicAuthHeader } from './httpClient';
 
 const MAX_BATCH_SIZE = 200;
 
@@ -61,7 +61,7 @@ export class AdoRestClient {
         }
         this.project = project;
         this.scope = `$/${project}`;
-        this.authHeader = 'Basic ' + Buffer.from(`:${pat}`).toString('base64');
+        this.authHeader = buildBasicAuthHeader(pat);
     }
 
     // ── HTTP helpers ─────────────────────────────────────────────────────
