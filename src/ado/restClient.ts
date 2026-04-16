@@ -309,7 +309,7 @@ export class AdoRestClient {
             return [];
         }
 
-        const ids = result.workItems.slice(0, MAX_BATCH_SIZE).map(w => w.id);
+        const allIds = result.workItems.map(w => w.id);
         const fields = [
             'System.Id', 'System.Title', 'System.State',
             'System.CreatedDate', 'System.CreatedBy',
@@ -318,24 +318,30 @@ export class AdoRestClient {
             'Microsoft.VSTS.CodeReview.ContextType',
         ].join(',');
 
-        const items = await this.get<AdoListResponse<any>>('/_apis/wit/workitems', {
-            ids: ids.join(','),
-            fields,
-        });
-
-        return (items.value || []).map((wit: any) => {
-            const f = wit.fields || {};
-            return {
-                id: wit.id,
-                title: f['System.Title'] || '',
-                state: f['System.State'] || '',
-                createdDate: f['System.CreatedDate'] || '',
-                createdBy: f['System.CreatedBy']?.displayName || f['System.CreatedBy'] || '',
-                shelvesetName: f['Microsoft.VSTS.CodeReview.Context'] || '',
-                shelvesetOwner: f['Microsoft.VSTS.CodeReview.ContextOwner'] || '',
-                contextType: f['Microsoft.VSTS.CodeReview.ContextType'] || '',
-            };
-        });
+        // The workitems endpoint caps `ids` at 200 per request, so paginate
+        // instead of silently truncating large review backlogs.
+        const reviews: CodeReviewRequest[] = [];
+        for (let i = 0; i < allIds.length; i += MAX_BATCH_SIZE) {
+            const batch = allIds.slice(i, i + MAX_BATCH_SIZE);
+            const items = await this.get<AdoListResponse<any>>('/_apis/wit/workitems', {
+                ids: batch.join(','),
+                fields,
+            });
+            for (const wit of items.value || []) {
+                const f = wit.fields || {};
+                reviews.push({
+                    id: wit.id,
+                    title: f['System.Title'] || '',
+                    state: f['System.State'] || '',
+                    createdDate: f['System.CreatedDate'] || '',
+                    createdBy: f['System.CreatedBy']?.displayName || f['System.CreatedBy'] || '',
+                    shelvesetName: f['Microsoft.VSTS.CodeReview.Context'] || '',
+                    shelvesetOwner: f['Microsoft.VSTS.CodeReview.ContextOwner'] || '',
+                    contextType: f['Microsoft.VSTS.CodeReview.ContextType'] || '',
+                });
+            }
+        }
+        return reviews;
     }
 
     async createCodeReviewResponse(
