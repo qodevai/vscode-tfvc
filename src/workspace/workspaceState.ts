@@ -463,6 +463,10 @@ export class WorkspaceState {
             if (!pathSet.has(item.localPath)) { continue; }
 
             const content = await restClient.downloadItemBuffer(item.serverPath, item.version);
+            // The parent directory may have been removed (e.g., user deleted it
+            // along with the file and then asked to undo). Recreate it before
+            // writing.
+            fs.mkdirSync(path.dirname(item.localPath), { recursive: true });
             fs.writeFileSync(item.localPath, content);
             fs.chmodSync(item.localPath, 0o444);
 

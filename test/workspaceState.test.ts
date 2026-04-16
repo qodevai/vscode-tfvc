@@ -278,6 +278,49 @@ describe('WorkspaceState', () => {
         assert.strictEqual(fs.readFileSync(localPath, 'utf8'), localContent);
     });
 
+    it('undoChanges recreates missing parent directories (C8)', async () => {
+        // Seed baseline with a file under a subdirectory
+        const stateDir = path.join(tmpDir, '.vscode-tfvc');
+        fs.mkdirSync(stateDir, { recursive: true });
+        const subDir = path.join(tmpDir, 'nested', 'dir');
+        fs.mkdirSync(subDir, { recursive: true });
+        const filePath = path.join(subDir, 'file.txt');
+        const originalContent = 'original content';
+        fs.writeFileSync(filePath, originalContent);
+        const originalHash = md5base64(originalContent);
+
+        const baseline = {
+            scope,
+            root: tmpDir,
+            version: 1,
+            items: [{
+                serverPath: '$/TestProject/nested/dir/file.txt',
+                localPath: filePath,
+                version: 1,
+                hash: originalHash,
+                mtime: fs.statSync(filePath).mtimeMs,
+                isFolder: false,
+            }],
+        };
+        fs.writeFileSync(path.join(stateDir, 'baseline.json'), JSON.stringify(baseline));
+        fs.writeFileSync(path.join(stateDir, 'pending.json'), '{"adds":[],"deletes":[],"checkouts":[]}');
+
+        // User deleted the whole subdir (not just the file)
+        fs.rmSync(path.join(tmpDir, 'nested'), { recursive: true, force: true });
+        assert.ok(!fs.existsSync(filePath));
+
+        const state = new WorkspaceState(tmpDir, scope);
+
+        const mockRestClient = {
+            downloadItemBuffer: async () => Buffer.from(originalContent),
+        } as any;
+
+        await state.undoChanges(mockRestClient, [filePath]);
+
+        assert.ok(fs.existsSync(filePath), 'file should be restored');
+        assert.strictEqual(fs.readFileSync(filePath, 'utf8'), originalContent);
+    });
+
     it('local shelf round-trip: save and apply', async () => {
         const stateDir = path.join(tmpDir, '.vscode-tfvc');
         fs.mkdirSync(stateDir, { recursive: true });
