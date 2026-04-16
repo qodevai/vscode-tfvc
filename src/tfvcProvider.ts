@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { TfvcRepository, PendingChange, ChangeType } from './tfvcRepository';
 import { TfvcError } from './errors';
+import { parseWorkItemIds } from './workItemParsing';
 
 const TFVC_SCHEME = 'tfvc';
 
@@ -165,12 +166,10 @@ export class TfvcSCMProvider implements vscode.Disposable {
             return;
         }
 
-        // Parse work item IDs from comment: "#1234" or "WI:1234"
-        const workItemMatches = comment.matchAll(/#(\d+)|WI:(\d+)/gi);
-        const workItems: number[] = [];
-        for (const m of workItemMatches) {
-            workItems.push(parseInt(m[1] || m[2], 10));
-        }
+        // Parse work item IDs from comment: "#1234" or "WI:1234". Dedupe so
+        // mentioning the same ID twice ("#1234 fixes #1234") doesn't send it
+        // twice to ADO (which rejects duplicate links).
+        const workItems = parseWorkItemIds(comment);
 
         const files = included.map(c => c.localPath);
         const result = await this.repo.checkin(files, comment, workItems.length > 0 ? workItems : undefined);
