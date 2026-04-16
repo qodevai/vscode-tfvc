@@ -7,6 +7,7 @@
 
 import { httpRequest, buildBasicAuthHeader } from './httpClient';
 import { extractAttr, decodeXmlEntities, escapeXmlAttr } from '../xmlUtils';
+import { classifyHttpError } from '../errors';
 
 const NS_SOAP = 'http://schemas.xmlsoap.org/soap/envelope/';
 const NS_DISC = 'http://schemas.microsoft.com/TeamFoundation/2012/Discussion';
@@ -143,7 +144,7 @@ export class AdoSoapClient {
         });
 
         if (res.status >= 400) {
-            throw new Error(`SOAP error ${res.status}: ${res.body.slice(0, 300)}`);
+            throw classifyHttpError(res.status, res.body, 'SOAP error');
         }
         return res.body;
     }

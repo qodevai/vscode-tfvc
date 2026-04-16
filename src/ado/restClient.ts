@@ -24,6 +24,7 @@ import {
     AdoWorkItemResponse,
 } from './types';
 import { httpRequest, httpRequestBuffer, HttpResponse, HttpBufferResponse, buildBasicAuthHeader } from './httpClient';
+import { classifyHttpError } from '../errors';
 
 const MAX_BATCH_SIZE = 200;
 
@@ -93,7 +94,7 @@ export class AdoRestClient {
         const url = this.buildUrl(path, params);
         const res = await this.request(url);
         if (res.status >= 400) {
-            throw new Error(`ADO API error ${res.status}: ${res.body.slice(0, 500)}`);
+            throw classifyHttpError(res.status, res.body, 'ADO API error');
         }
         return JSON.parse(res.body) as T;
     }
@@ -102,7 +103,7 @@ export class AdoRestClient {
         const url = this.buildUrl(path, params);
         const res = await this.request(url, 'POST', { 'Content-Type': contentType }, typeof body === 'string' ? body : JSON.stringify(body));
         if (res.status >= 400) {
-            throw new Error(`ADO API error ${res.status}: ${res.body.slice(0, 500)}`);
+            throw classifyHttpError(res.status, res.body, 'ADO API error');
         }
         return JSON.parse(res.body) as T;
     }
@@ -111,7 +112,7 @@ export class AdoRestClient {
         const url = this.buildUrl(path, params);
         const res = await this.request(url, 'PATCH', { 'Content-Type': 'application/json-patch+json' }, JSON.stringify(body));
         if (res.status >= 400) {
-            throw new Error(`ADO API error ${res.status}: ${res.body.slice(0, 500)}`);
+            throw classifyHttpError(res.status, res.body, 'ADO API error');
         }
         return JSON.parse(res.body) as T;
     }
@@ -119,7 +120,7 @@ export class AdoRestClient {
     private async getRaw(url: string): Promise<string> {
         const res = await this.request(url);
         if (res.status >= 400) {
-            throw new Error(`ADO download error ${res.status}: ${res.body.slice(0, 200)}`);
+            throw classifyHttpError(res.status, res.body, 'ADO download error');
         }
         return res.body;
     }
@@ -134,7 +135,7 @@ export class AdoRestClient {
     private async getBuffer(url: string): Promise<Buffer> {
         const res = await this.requestBuffer(url);
         if (res.status >= 400) {
-            throw new Error(`ADO download error ${res.status}: ${res.body.toString('utf8').slice(0, 200)}`);
+            throw classifyHttpError(res.status, res.body.toString('utf8'), 'ADO download error');
         }
         return res.body;
     }
@@ -143,7 +144,7 @@ export class AdoRestClient {
         const url = this.buildUrl(path, params);
         const res = await this.request(url, 'DELETE');
         if (res.status >= 400) {
-            throw new Error(`ADO API error ${res.status}: ${res.body.slice(0, 500)}`);
+            throw classifyHttpError(res.status, res.body, 'ADO API error');
         }
     }
 
