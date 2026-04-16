@@ -141,11 +141,6 @@
         "icon": "$(pass)"
       },
       {
-        "command": "tfvc.postComment",
-        "title": "Post Inline Comment",
-        "category": "TFVC"
-      },
-      {
         "command": "tfvc.initWorkspace",
         "title": "Initialize Workspace",
         "category": "TFVC",

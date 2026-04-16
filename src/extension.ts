@@ -293,13 +293,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             }
         }),
 
-        vscode.commands.registerCommand('tfvc.postComment', async () => {
-            if (!restClient || !soapClient) {
-                vscode.window.showErrorMessage('TFVC: Run "TFVC: Set PAT" and configure tfvc.adoOrg to post comments.');
-                return;
-            }
-            vscode.window.showInformationMessage('TFVC: Use the Comments API in a review diff to post inline comments.');
-        }),
     );
 
     disposables.push(outputChannel);
