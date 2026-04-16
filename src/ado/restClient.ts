@@ -24,7 +24,7 @@ import {
     AdoWorkItemResponse,
 } from './types';
 import { httpRequest, httpRequestBuffer, HttpResponse, HttpBufferResponse, buildBasicAuthHeader } from './httpClient';
-import { classifyHttpError } from '../errors';
+import { classifyHttpError, TfvcError } from '../errors';
 
 const MAX_BATCH_SIZE = 200;
 
@@ -57,11 +57,26 @@ export class AdoRestClient {
         baseUrl = '',
         collectionPath = ''
     ) {
+        // Validate inputs at the boundary so callers get a clear error instead
+        // of later HTTP failures against a bogus URL like
+        // "https://dev.azure.com//_apis/...".
+        if (!pat) {
+            throw new TfvcError('AdoRestClient: PAT is required');
+        }
+        if (!project) {
+            throw new TfvcError('AdoRestClient: project is required');
+        }
+        if (!baseUrl && !org) {
+            throw new TfvcError('AdoRestClient: either org (cloud) or baseUrl (on-prem) must be provided');
+        }
         if (baseUrl) {
+            if (!/^https?:\/\//i.test(baseUrl)) {
+                throw new TfvcError(`AdoRestClient: baseUrl must start with http(s):// (got "${baseUrl}")`);
+            }
             this.base = `${baseUrl.replace(/\/+$/, '')}${collectionPath}`;
             this.apiVersion = '6.0';
         } else {
-            this.base = `https://dev.azure.com/${org}`;
+            this.base = `https://dev.azure.com/${encodeURIComponent(org)}`;
             this.apiVersion = '7.1';
         }
         this.project = project;
