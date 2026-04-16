@@ -221,7 +221,12 @@ export class TfvcRepository implements vscode.Disposable {
         await this.refresh();
     }
 
-    async shelve(name: string, comment?: string): Promise<void> {
+    /**
+     * Shelve pending changes. Returns where the shelveset was persisted so the
+     * caller can tell the user: server-side shelvesets are visible to
+     * teammates and across machines; the local fallback is not.
+     */
+    async shelve(name: string, comment?: string): Promise<{ location: 'server' | 'local'; error?: unknown }> {
         // Try REST-based shelving first, fall back to local
         try {
             const changes = await this.state.getPendingChanges();
@@ -243,13 +248,22 @@ export class TfvcRepository implements vscode.Disposable {
             }));
 
             await this.restClient.createShelveset(name, apiChanges, comment);
-        } catch {
-            // REST shelving unavailable — fall back to local
+            return { location: 'server' };
+        } catch (err) {
+            // REST shelving unavailable — fall back to local so the user's
+            // in-flight work isn't lost, but surface the failure so they can
+            // retry once the server is reachable. Local shelves are per-machine.
+            logError(`Server shelve failed, saving to local shelf: ${err}`);
             await this.state.saveLocalShelf(name, comment);
+            return { location: 'local', error: err };
         }
     }
 
-    async unshelve(name: string): Promise<void> {
+    /**
+     * Unshelve by name. Returns whether the contents came from the server or
+     * the local fallback shelf.
+     */
+    async unshelve(name: string): Promise<{ location: 'server' | 'local'; error?: unknown }> {
         // Try REST unshelve first: download shelveset changes and apply
         try {
             const identity = await this.restClient.getBotIdentity();
@@ -280,12 +294,15 @@ export class TfvcRepository implements vscode.Disposable {
                     }
                 }
             }
-        } catch {
+            await this.refresh();
+            return { location: 'server' };
+        } catch (err) {
             // Fall back to local shelf
+            logError(`Server unshelve failed, applying local shelf: ${err}`);
             await this.state.applyLocalShelf(name);
+            await this.refresh();
+            return { location: 'local', error: err };
         }
-
-        await this.refresh();
     }
 
     async listShelvesets(owner?: string): Promise<Array<{ name: string; owner: string; date: string; comment: string }>> {
@@ -308,13 +325,15 @@ export class TfvcRepository implements vscode.Disposable {
         }
     }
 
-    async deleteShelve(name: string): Promise<void> {
+    async deleteShelve(name: string): Promise<{ location: 'server' | 'local'; error?: unknown }> {
         try {
             const identity = await this.restClient.getBotIdentity();
             await this.restClient.deleteShelveset(name, identity.displayName);
-        } catch {
-            // Fall back to deleting local shelf
+            return { location: 'server' };
+        } catch (err) {
+            logError(`Server deleteShelveset failed, deleting local shelf: ${err}`);
             this.state.deleteLocalShelf(name);
+            return { location: 'local', error: err };
         }
     }
 
