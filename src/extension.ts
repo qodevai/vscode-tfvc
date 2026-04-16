@@ -27,16 +27,40 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     const config = vscode.workspace.getConfiguration('tfvc');
 
-    // Find workspace root — check for .vscode-tfvc/ or adoProject config
-    const workspaceRoot = findWorkspaceRoot();
+    // Find workspace root — check for .vscode-tfvc/ or adoProject config.
+    // In multi-root workspaces we pick a single root and surface the choice
+    // to the user so they know which folder TFVC is wired up to.
+    const tfvcRoots = findTfvcRoots();
     const hasConfig = !!config.get<string>('adoProject', '');
 
-    if (!workspaceRoot && !hasConfig) {
+    if (tfvcRoots.length === 0 && !hasConfig) {
         outputChannel.appendLine('No TFVC workspace detected (.vscode-tfvc/ not found, no tfvc.adoProject configured). Extension inactive.');
         return;
     }
 
-    const root = workspaceRoot || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    let root: string | undefined;
+    if (tfvcRoots.length === 1) {
+        root = tfvcRoots[0];
+    } else if (tfvcRoots.length > 1) {
+        root = tfvcRoots[0];
+        const list = tfvcRoots.map(r => `  • ${r}`).join('\n');
+        outputChannel.appendLine(
+            `Multiple TFVC workspaces found; using ${root}. Others:\n${list}`
+        );
+        vscode.window.showWarningMessage(
+            `TFVC: multiple folders contain .vscode-tfvc/. Using "${root}". Close others or split into separate VS Code windows.`
+        );
+    } else {
+        // No .vscode-tfvc/ folder found — fall back to the first workspace
+        // folder, but flag the guess if there are several folders to pick from.
+        const folders = vscode.workspace.workspaceFolders;
+        root = folders?.[0]?.uri.fsPath;
+        if (folders && folders.length > 1) {
+            vscode.window.showWarningMessage(
+                `TFVC: no .vscode-tfvc/ found; defaulting to "${root}". Run "TFVC: Initialize Workspace" in the correct folder to pin the workspace root.`
+            );
+        }
+    }
     if (!root) {
         outputChannel.appendLine('No workspace folder open. Extension inactive.');
         return;
@@ -319,21 +343,22 @@ export function deactivate(): void {
 }
 
 
-/** Find workspace root by looking for .vscode-tfvc/ directory. */
-function findWorkspaceRoot(): string | undefined {
+/** Return every workspace folder that contains a .vscode-tfvc/ directory. */
+function findTfvcRoots(): string[] {
     const folders = vscode.workspace.workspaceFolders;
-    if (!folders) { return undefined; }
+    if (!folders) { return []; }
 
+    const roots: string[] = [];
     for (const folder of folders) {
         const stateDir = vscode.Uri.joinPath(folder.uri, STATE_DIR);
         try {
             if (fs.existsSync(stateDir.fsPath)) {
-                return folder.uri.fsPath;
+                roots.push(folder.uri.fsPath);
             }
         } catch {
             // Continue
         }
     }
 
-    return undefined;
+    return roots;
 }
