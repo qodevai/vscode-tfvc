@@ -64,7 +64,7 @@ export class ReviewTreeProvider implements vscode.TreeDataProvider<ReviewTreeIte
 
     constructor(private restClient: AdoRestClient | undefined) {}
 
-    setRestClient(client: AdoRestClient): void {
+    setRestClient(client: AdoRestClient | undefined): void {
         this.restClient = client;
         this.refresh();
     }

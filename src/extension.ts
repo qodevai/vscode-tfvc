@@ -15,6 +15,7 @@ import { ReviewVerdict } from './ado/types';
 import { ReviewCommentController } from './providers/comments';
 import { normalizeChangeLabel } from './changeType';
 import { getOutputChannel, logError } from './outputChannel';
+import { isIgnoredPath } from './workspace/watcherIgnore';
 
 const STATE_DIR = '.vscode-tfvc';
 
@@ -61,6 +62,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     let soapClient: AdoSoapClient | undefined;
     let repo: TfvcRepository | undefined;
 
+    // Disposables owned by the current restClient/repo. Recreated on
+    // config change so that switching to a different ADO project/org
+    // swaps in a fresh repository with the new scope.
+    let repoDisposables: vscode.Disposable[] = [];
+
+    function disposeRepoScoped(): void {
+        for (const d of repoDisposables.splice(0)) {
+            try { d.dispose(); } catch (err) { logError(`Dispose failed: ${err}`); }
+        }
+        repo = undefined;
+    }
+
     async function initRestClient(): Promise<void> {
         const cfg = vscode.workspace.getConfiguration('tfvc');
         const pat = await context.secrets.get('tfvc.pat') || '';
@@ -69,9 +82,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const baseUrl = cfg.get<string>('adoBaseUrl', '');
         const collectionPath = cfg.get<string>('adoCollectionPath', '');
 
+        // Tear down existing repo-scoped resources so the new client/scope
+        // doesn't race with the old one. Review-tree dependencies are swapped
+        // in place below.
+        disposeRepoScoped();
+
         if (!pat || !project || (!org && !baseUrl)) {
             restClient = undefined;
             soapClient = undefined;
+            reviewTree.setRestClient(undefined);
+            reviewContent.setRestClient(undefined);
+            reviewComments.setSoapClient(undefined);
             return;
         }
 
@@ -87,44 +108,38 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
         outputChannel.appendLine(`ADO REST client initialized for ${baseUrl || `dev.azure.com/${org}`}/${project}`);
 
-        // Create workspace state + repository if not already done
-        if (!repo && restClient) {
-            const scope = restClient.scope;
-            const state = new WorkspaceState(root!, scope, logError);
-            repo = new TfvcRepository(state, restClient);
+        // Build the scoped repository and its dependents fresh each time.
+        const scope = restClient.scope;
+        const state = new WorkspaceState(root!, scope, logError);
+        repo = new TfvcRepository(state, restClient);
 
-            const provider = new TfvcSCMProvider(repo, context, root!);
-            const decorations = new TfvcDecorationProvider(repo);
-            const quickDiff = new TfvcQuickDiffProvider(repo);
-            const autoCheckout = new AutoCheckoutHandler(repo, root!);
-            disposables.push(repo, provider, decorations, quickDiff, autoCheckout);
+        const provider = new TfvcSCMProvider(repo, context, root!);
+        const decorations = new TfvcDecorationProvider(repo);
+        const quickDiff = new TfvcQuickDiffProvider(repo);
+        const autoCheckout = new AutoCheckoutHandler(repo, root!);
+        repoDisposables.push(repo, provider, decorations, quickDiff, autoCheckout);
 
-            // File watcher for .vscode-tfvc/ metadata changes
-            const stateWatcher = vscode.workspace.createFileSystemWatcher(
-                new vscode.RelativePattern(root!, `${STATE_DIR}/**`)
-            );
-            stateWatcher.onDidChange(() => repo!.debouncedRefresh());
-            stateWatcher.onDidCreate(() => repo!.debouncedRefresh());
-            stateWatcher.onDidDelete(() => repo!.debouncedRefresh());
-            disposables.push(stateWatcher);
+        // File watcher for .vscode-tfvc/ metadata changes
+        const stateWatcher = vscode.workspace.createFileSystemWatcher(
+            new vscode.RelativePattern(root!, `${STATE_DIR}/**`)
+        );
+        stateWatcher.onDidChange(() => repo!.debouncedRefresh());
+        stateWatcher.onDidCreate(() => repo!.debouncedRefresh());
+        stateWatcher.onDidDelete(() => repo!.debouncedRefresh());
+        repoDisposables.push(stateWatcher);
 
-            // File watcher for workspace files — instant edit detection
-            const fileWatcher = vscode.workspace.createFileSystemWatcher(
-                new vscode.RelativePattern(root!, '**/*')
-            );
-            const ignoreChange = (uri: vscode.Uri) => {
-                const rel = path.relative(root!, uri.fsPath);
-                return rel.startsWith(STATE_DIR) || rel.startsWith('.git') || rel.startsWith('node_modules');
-            };
-            fileWatcher.onDidChange(uri => { if (!ignoreChange(uri)) { repo!.debouncedRefresh(500); } });
-            fileWatcher.onDidCreate(uri => { if (!ignoreChange(uri)) { repo!.debouncedRefresh(500); } });
-            fileWatcher.onDidDelete(uri => { if (!ignoreChange(uri)) { repo!.debouncedRefresh(500); } });
-            disposables.push(fileWatcher);
+        // File watcher for workspace files — instant edit detection
+        const fileWatcher = vscode.workspace.createFileSystemWatcher(
+            new vscode.RelativePattern(root!, '**/*')
+        );
+        fileWatcher.onDidChange(uri => { if (!isIgnoredPath(uri.fsPath, root!)) { repo!.debouncedRefresh(500); } });
+        fileWatcher.onDidCreate(uri => { if (!isIgnoredPath(uri.fsPath, root!)) { repo!.debouncedRefresh(500); } });
+        fileWatcher.onDidDelete(uri => { if (!isIgnoredPath(uri.fsPath, root!)) { repo!.debouncedRefresh(500); } });
+        repoDisposables.push(fileWatcher);
 
-            // Auto-refresh interval
-            const refreshInterval = cfg.get<number>('autoRefreshInterval', 0);
-            repo.startAutoRefresh(refreshInterval);
-        }
+        // Auto-refresh interval
+        const refreshInterval = cfg.get<number>('autoRefreshInterval', 0);
+        repo.startAutoRefresh(refreshInterval);
     }
 
     await initRestClient();
@@ -289,6 +304,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     disposables.push(outputChannel);
 
+    // Also make repo-scoped disposables disposable at deactivation, not only
+    // when the config changes.
+    disposables.push({ dispose: disposeRepoScoped });
+
     // Store disposables in context (single ownership — deactivate() is a no-op)
     context.subscriptions.push(...disposables);
 
@@ -305,6 +324,7 @@ export function deactivate(): void {
     // Clear our reference to avoid double disposal.
     disposables = [];
 }
+
 
 /** Find workspace root by looking for .vscode-tfvc/ directory. */
 function findWorkspaceRoot(): string | undefined {

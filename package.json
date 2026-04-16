@@ -29,7 +29,7 @@
   ],
   "activationEvents": [
     "workspaceContains:**/.vscode-tfvc/**",
-    "onCommand:tfvc.initWorkspace"
+    "onStartupFinished"
   ],
   "main": "./out/extension.js",
   "contributes": {
