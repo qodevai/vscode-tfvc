@@ -1,6 +1,21 @@
 import * as path from 'path';
 
 /**
+ * Normalise a path for comparison. TFVC is case-insensitive on both
+ * server paths and (typically) local paths on Windows/macOS, so lower-casing
+ * is the safe cross-platform default. Keep the original casing everywhere
+ * outside of lookups/keys so the user-visible paths stay accurate.
+ */
+export function pathKey(p: string): string {
+    return p.toLowerCase();
+}
+
+/** True when two paths refer to the same TFVC resource (case-insensitive). */
+export function samePath(a: string, b: string): boolean {
+    return a.toLowerCase() === b.toLowerCase();
+}
+
+/**
  * Convert a TFVC server path to a local filesystem path.
  *
  * Example: serverToLocal('$/MyProject/src/app.ts', '$/MyProject', '/home/user/repo')

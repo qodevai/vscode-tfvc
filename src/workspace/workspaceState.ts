@@ -18,7 +18,7 @@ import {
     SyncResult,
 } from './types';
 import { computeFileHash } from './hashing';
-import { serverToLocal, localToServer } from './pathMapping';
+import { serverToLocal, localToServer, pathKey, samePath } from './pathMapping';
 import { AdoRestClient } from '../ado/restClient';
 import { TfvcItemFull } from '../ado/types';
 import { TfvcError } from '../errors';
@@ -172,14 +172,17 @@ export class WorkspaceState {
         // and filtering — on large repos the full list can be 100k+ entries.
         let fileItems: TfvcItemFull[];
         let scopePath: string;
-        const pathSet = paths ? new Set(paths.map(p => localToServer(p, this.scope, this.root))) : null;
+        // TFVC is case-insensitive, so lookups go through pathKey() to avoid
+        // missing matches when a file is stored with one casing on the server
+        // and another in the user's config or on disk.
+        const pathSet = paths ? new Set(paths.map(p => pathKey(localToServer(p, this.scope, this.root)))) : null;
         if (paths && paths.length > 0) {
             const seen = new Map<string, TfvcItemFull>();
             for (const p of paths) {
                 const serverPath = localToServer(p, this.scope, this.root);
                 const items = await restClient.listItems(serverPath);
                 for (const item of items) {
-                    if (!item.isFolder) { seen.set(item.path, item); }
+                    if (!item.isFolder) { seen.set(pathKey(item.path), item); }
                 }
             }
             fileItems = Array.from(seen.values());
@@ -195,18 +198,18 @@ export class WorkspaceState {
         // Build lookup of current baseline by server path
         const baselineMap = new Map<string, BaselineItem>();
         for (const item of this.baseline.items) {
-            baselineMap.set(item.serverPath, item);
+            baselineMap.set(pathKey(item.serverPath), item);
         }
 
         // With per-path listItems we still need to confirm we only touch the
         // requested scope (recursive folder queries could return extras).
         const relevantItems = pathSet
-            ? fileItems.filter(i => pathSet.has(i.path) || isPathUnderAny(i.path, pathSet))
+            ? fileItems.filter(i => pathSet.has(pathKey(i.path)) || isPathUnderAny(i.path, pathSet))
             : fileItems;
 
         for (let i = 0; i < relevantItems.length; i++) {
             const item = relevantItems[i];
-            const existing = baselineMap.get(item.path);
+            const existing = baselineMap.get(pathKey(item.path));
             const localPath = serverToLocal(item.path, this.scope, this.root);
 
             // Skip if version hasn't changed
@@ -217,7 +220,8 @@ export class WorkspaceState {
             onProgress?.(`Downloading (${i + 1}/${relevantItems.length}): ${path.basename(localPath)}`);
 
             // Check if file has local edits — report as conflict instead of overwriting.
-            const hasLocalEdit = this.pending.checkouts.includes(localPath) || this.pending.adds.includes(localPath);
+            const hasLocalEdit = this.pending.checkouts.some(c => samePath(c, localPath))
+                || this.pending.adds.some(a => samePath(a, localPath));
             if (hasLocalEdit) {
                 results.push({ path: localPath, action: 'conflict' });
                 continue;
@@ -279,7 +283,7 @@ export class WorkspaceState {
         // Refuse to wipe the entire baseline in that case — require an explicit
         // path scope if the user really wants to process removals.
         const baselineInScope = pathSet
-            ? this.baseline.items.filter(i => pathSet.has(i.serverPath))
+            ? this.baseline.items.filter(i => pathSet.has(pathKey(i.serverPath)))
             : this.baseline.items;
         if (fileItems.length === 0 && baselineInScope.length > 0 && !pathSet) {
             throw new TfvcError(
@@ -288,11 +292,11 @@ export class WorkspaceState {
             );
         }
 
-        const serverPaths = new Set(fileItems.map(i => i.path));
+        const serverPaths = new Set(fileItems.map(i => pathKey(i.path)));
         const toRemove: BaselineItem[] = [];
         for (const item of this.baseline.items) {
-            if (pathSet && !pathSet.has(item.serverPath)) { continue; }
-            if (!serverPaths.has(item.serverPath)) {
+            if (pathSet && !pathSet.has(pathKey(item.serverPath))) { continue; }
+            if (!serverPaths.has(pathKey(item.serverPath))) {
                 // File deleted on server
                 try {
                     if (fs.existsSync(item.localPath)) {
@@ -347,10 +351,10 @@ export class WorkspaceState {
         }
 
         // 3. Auto-detect edits by comparing hashes
-        const deletedServerPaths = new Set(this.pending.deletes);
+        const deletedServerPaths = new Set(this.pending.deletes.map(pathKey));
         for (const item of this.baseline.items) {
             if (item.isFolder) { continue; }
-            if (deletedServerPaths.has(item.serverPath)) { continue; }
+            if (deletedServerPaths.has(pathKey(item.serverPath))) { continue; }
 
             // Single stat handles both existence and mtime; saves one syscall
             // per tracked file on large repos.
@@ -384,7 +388,7 @@ export class WorkspaceState {
 
     markAdd(localPaths: string[]): void {
         for (const p of localPaths) {
-            if (!this.pending.adds.includes(p)) {
+            if (!this.pending.adds.some(a => samePath(a, p))) {
                 this.pending.adds.push(p);
             }
         }
@@ -394,7 +398,7 @@ export class WorkspaceState {
     markDelete(localPaths: string[]): void {
         for (const p of localPaths) {
             const serverPath = localToServer(p, this.scope, this.root);
-            if (!this.pending.deletes.includes(serverPath)) {
+            if (!this.pending.deletes.some(d => samePath(d, serverPath))) {
                 this.pending.deletes.push(serverPath);
             }
         }
@@ -403,7 +407,7 @@ export class WorkspaceState {
 
     markCheckout(localPaths: string[]): void {
         for (const p of localPaths) {
-            if (!this.pending.checkouts.includes(p)) {
+            if (!this.pending.checkouts.some(c => samePath(c, p))) {
                 this.pending.checkouts.push(p);
             }
         }
@@ -412,15 +416,15 @@ export class WorkspaceState {
 
     /** Remove specific paths from all pending lists. */
     clearPending(localPaths: string[]): void {
-        const pathSet = new Set(localPaths);
+        const pathSet = new Set(localPaths.map(pathKey));
         const serverPathSet = new Set(localPaths.map(p => {
-            try { return localToServer(p, this.scope, this.root); }
+            try { return pathKey(localToServer(p, this.scope, this.root)); }
             catch { return ''; }
         }));
 
-        this.pending.adds = this.pending.adds.filter(p => !pathSet.has(p));
-        this.pending.deletes = this.pending.deletes.filter(p => !serverPathSet.has(p));
-        this.pending.checkouts = this.pending.checkouts.filter(p => !pathSet.has(p));
+        this.pending.adds = this.pending.adds.filter(p => !pathSet.has(pathKey(p)));
+        this.pending.deletes = this.pending.deletes.filter(p => !serverPathSet.has(pathKey(p)));
+        this.pending.checkouts = this.pending.checkouts.filter(p => !pathSet.has(pathKey(p)));
         this.savePending();
     }
 
@@ -438,7 +442,7 @@ export class WorkspaceState {
         for (const change of changes) {
             if (change.changeType === 'add' || change.changeType === 'edit') {
                 // Update or create baseline entry
-                const existing = this.baseline.items.find(i => i.serverPath === change.serverPath);
+                const existing = this.baseline.items.find(i => samePath(i.serverPath, change.serverPath));
                 const hash = await computeFileHash(change.localPath);
 
                 // Make read-only again after checkin, then stat once. chmod
@@ -462,7 +466,7 @@ export class WorkspaceState {
                     this.baseline.items.push(entry);
                 }
             } else if (change.changeType === 'delete') {
-                this.baseline.items = this.baseline.items.filter(i => i.serverPath !== change.serverPath);
+                this.baseline.items = this.baseline.items.filter(i => !samePath(i.serverPath, change.serverPath));
             }
         }
 
@@ -474,15 +478,15 @@ export class WorkspaceState {
      * Undo pending changes: re-download from baseline and restore read-only.
      */
     async undoChanges(restClient: AdoRestClient, localPaths: string[]): Promise<void> {
-        const pathSet = new Set(localPaths);
+        const pathSet = new Set(localPaths.map(pathKey));
         const serverPathSet = new Set(localPaths.map(p => {
-            try { return localToServer(p, this.scope, this.root); }
+            try { return pathKey(localToServer(p, this.scope, this.root)); }
             catch { return ''; }
         }));
 
         // Undo edits/checkouts: re-download server version
         for (const item of this.baseline.items) {
-            if (!pathSet.has(item.localPath)) { continue; }
+            if (!pathSet.has(pathKey(item.localPath))) { continue; }
 
             const content = await restClient.downloadItemBuffer(item.serverPath, item.version);
             // The parent directory may have been removed (e.g., user deleted it
@@ -498,10 +502,10 @@ export class WorkspaceState {
         }
 
         // Undo adds: just remove from pending (don't delete local file)
-        this.pending.adds = this.pending.adds.filter(p => !pathSet.has(p));
+        this.pending.adds = this.pending.adds.filter(p => !pathSet.has(pathKey(p)));
 
         // Undo deletes: re-download and add back to baseline
-        const deletesToUndo = this.pending.deletes.filter(sp => serverPathSet.has(sp));
+        const deletesToUndo = this.pending.deletes.filter(sp => serverPathSet.has(pathKey(sp)));
         for (const serverPath of deletesToUndo) {
             const localPath = serverToLocal(serverPath, this.scope, this.root);
             try {
@@ -513,8 +517,8 @@ export class WorkspaceState {
                 this.log(`Failed to restore ${serverPath}: ${err}`);
             }
         }
-        this.pending.deletes = this.pending.deletes.filter(p => !serverPathSet.has(p));
-        this.pending.checkouts = this.pending.checkouts.filter(p => !pathSet.has(p));
+        this.pending.deletes = this.pending.deletes.filter(p => !serverPathSet.has(pathKey(p)));
+        this.pending.checkouts = this.pending.checkouts.filter(p => !pathSet.has(pathKey(p)));
 
         this.saveBaseline();
         this.savePending();
@@ -629,12 +633,12 @@ export class WorkspaceState {
 
     /** Find baseline entry for a local path. */
     getBaselineItem(localPath: string): BaselineItem | undefined {
-        return this.baseline.items.find(i => i.localPath === localPath);
+        return this.baseline.items.find(i => samePath(i.localPath, localPath));
     }
 
     /** Find baseline entry for a server path. */
     getBaselineItemByServer(serverPath: string): BaselineItem | undefined {
-        return this.baseline.items.find(i => i.serverPath === serverPath);
+        return this.baseline.items.find(i => samePath(i.serverPath, serverPath));
     }
 
     /** Get the scope (e.g. $/Project). */
@@ -652,11 +656,13 @@ export class WorkspaceState {
  * Check whether a server path is under any of the requested scope paths.
  * Used to keep recursive listItems results within the user-requested scope
  * when a directory path resolves to its children via 'Full' recursion.
+ * Scope entries are already lower-cased (TFVC is case-insensitive).
  */
 function isPathUnderAny(serverPath: string, scopes: Set<string>): boolean {
+    const needle = serverPath.toLowerCase();
     for (const scope of scopes) {
-        if (serverPath === scope) { return true; }
-        if (serverPath.startsWith(scope + '/')) { return true; }
+        if (needle === scope) { return true; }
+        if (needle.startsWith(scope + '/')) { return true; }
     }
     return false;
 }

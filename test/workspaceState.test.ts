@@ -278,6 +278,34 @@ describe('WorkspaceState', () => {
         assert.strictEqual(fs.readFileSync(localPath, 'utf8'), localContent);
     });
 
+    it('getBaselineItemByServer matches case-insensitively (I16)', () => {
+        const stateDir = path.join(tmpDir, '.vscode-tfvc');
+        fs.mkdirSync(stateDir, { recursive: true });
+        const localPath = path.join(tmpDir, 'Foo.ts');
+        const baseline = {
+            scope,
+            root: tmpDir,
+            version: 1,
+            items: [{
+                serverPath: '$/TestProject/Foo.ts',
+                localPath,
+                version: 1,
+                hash: 'abc',
+                mtime: 0,
+                isFolder: false,
+            }],
+        };
+        fs.writeFileSync(path.join(stateDir, 'baseline.json'), JSON.stringify(baseline));
+        fs.writeFileSync(path.join(stateDir, 'pending.json'), '{"adds":[],"deletes":[],"checkouts":[]}');
+
+        const state = new WorkspaceState(tmpDir, scope);
+
+        // Lookup with different casing should still find the entry.
+        const found = state.getBaselineItemByServer('$/testproject/FOO.ts');
+        assert.ok(found, 'case-insensitive lookup should succeed');
+        assert.strictEqual(found!.serverPath, '$/TestProject/Foo.ts');
+    });
+
     it('syncBaseline issues per-path listItems calls when paths are scoped (I14)', async () => {
         const stateDir = path.join(tmpDir, '.vscode-tfvc');
         fs.mkdirSync(stateDir, { recursive: true });
