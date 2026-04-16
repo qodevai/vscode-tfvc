@@ -5,6 +5,7 @@ import { WorkspaceState } from './workspace/workspaceState';
 import { PendingChange, CheckinResult, SyncResult, HistoryEntry, ChangeType } from './workspace/types';
 import { localToServer, serverToLocal } from './workspace/pathMapping';
 import { AdoRestClient } from './ado/restClient';
+import { encodeFileContent } from './ado/encoding';
 import { ShelvesetInfo } from './ado/types';
 import { TfvcError } from './errors';
 import { logError } from './outputChannel';
@@ -133,15 +134,7 @@ export class TfvcRepository implements vscode.Disposable {
             }
 
             if (c.changeType !== 'delete') {
-                const content = fs.readFileSync(c.localPath);
-                // Detect binary: check for null bytes in first 8KB
-                const sample = content.subarray(0, 8192);
-                const isBinary = sample.includes(0);
-
-                payload.newContent = {
-                    content: isBinary ? content.toString('base64') : content.toString('utf8'),
-                    contentType: isBinary ? 'base64Encoded' : 'rawText',
-                };
+                payload.newContent = encodeFileContent(fs.readFileSync(c.localPath));
             } else {
                 const baseline = this.state.getBaselineItemByServer(c.serverPath);
                 if (baseline) {
@@ -243,14 +236,7 @@ export class TfvcRepository implements vscode.Disposable {
                 };
 
                 if (c.changeType !== 'delete' && fs.existsSync(c.localPath)) {
-                    const content = fs.readFileSync(c.localPath);
-                    const sample = content.subarray(0, 8192);
-                    const isBinary = sample.includes(0);
-
-                    payload.newContent = {
-                        content: isBinary ? content.toString('base64') : content.toString('utf8'),
-                        contentType: isBinary ? 'base64Encoded' : 'rawText',
-                    };
+                    payload.newContent = encodeFileContent(fs.readFileSync(c.localPath));
                 }
 
                 return payload;
