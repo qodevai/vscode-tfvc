@@ -422,17 +422,18 @@ export class WorkspaceState {
                 // Update or create baseline entry
                 const existing = this.baseline.items.find(i => i.serverPath === change.serverPath);
                 const hash = await computeFileHash(change.localPath);
-                const stat = fs.statSync(change.localPath);
 
-                // Make read-only again after checkin
+                // Make read-only again after checkin, then stat once. chmod
+                // itself updates ctime but not mtime, so this order is safe.
                 fs.chmodSync(change.localPath, 0o444);
+                const stat = fs.statSync(change.localPath);
 
                 const entry: BaselineItem = {
                     serverPath: change.serverPath,
                     localPath: change.localPath,
                     version: newVersion,
                     hash,
-                    mtime: fs.statSync(change.localPath).mtimeMs,
+                    mtime: stat.mtimeMs,
                     isFolder: false,
                 };
 
