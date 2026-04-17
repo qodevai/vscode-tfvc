@@ -197,7 +197,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 e.affectsConfiguration('tfvc.adoBaseUrl') ||
                 e.affectsConfiguration('tfvc.adoCollectionPath')
             ) {
-                initRestClient();
+                initRestClient().catch(err => logError(`Config-change re-init failed: ${err}`));
             }
             if (e.affectsConfiguration('tfvc.autoRefreshInterval') && repo) {
                 const interval = vscode.workspace.getConfiguration('tfvc').get<number>('autoRefreshInterval', 0);
@@ -206,7 +206,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }),
         context.secrets.onDidChange(e => {
             if (e.key === 'tfvc.pat') {
-                initRestClient();
+                initRestClient().catch(err => logError(`PAT-change re-init failed: ${err}`));
             }
         })
     );
