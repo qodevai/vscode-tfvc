@@ -25,6 +25,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const outputChannel = getOutputChannel();
     outputChannel.appendLine('TFVC extension activating...');
 
+    // ── Bootstrap commands (always available, even without a workspace) ─
+    disposables.push(
+        vscode.commands.registerCommand('tfvc.setPat', async () => {
+            const pat = await vscode.window.showInputBox({
+                prompt: 'Azure DevOps Personal Access Token',
+                password: true,
+                placeHolder: 'Paste your PAT here',
+            });
+            if (pat === undefined) { return; }
+            if (pat === '') {
+                await context.secrets.delete('tfvc.pat');
+                vscode.window.showInformationMessage('TFVC: PAT removed from secure storage.');
+            } else {
+                await context.secrets.store('tfvc.pat', pat);
+                vscode.window.showInformationMessage('TFVC: PAT stored securely.');
+            }
+        }),
+    );
+    context.subscriptions.push(...disposables.splice(0));
+
     const config = vscode.workspace.getConfiguration('tfvc');
 
     // Find workspace root — check for .vscode-tfvc/ or adoProject config.
@@ -189,27 +209,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 initRestClient();
             }
         })
-    );
-
-    // ── PAT management command ───────────────────────────────────────
-
-    disposables.push(
-        vscode.commands.registerCommand('tfvc.setPat', async () => {
-            const pat = await vscode.window.showInputBox({
-                prompt: 'Azure DevOps Personal Access Token',
-                password: true,
-                placeHolder: 'Paste your PAT here',
-            });
-            if (pat === undefined) { return; }
-            if (pat === '') {
-                await context.secrets.delete('tfvc.pat');
-                vscode.window.showInformationMessage('TFVC: PAT removed from secure storage.');
-            } else {
-                await context.secrets.store('tfvc.pat', pat);
-                vscode.window.showInformationMessage('TFVC: PAT stored securely.');
-            }
-            await initRestClient();
-        }),
     );
 
     // ── Initialize workspace command ─────────────────────────────────
