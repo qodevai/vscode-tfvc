@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2]
+
 ### Added
 - Classify ADO HTTP errors by status code with user-actionable messages (401, 403, 404, 429, 5xx).
 - Surface auto-checkout failures to the user with per-file deduped warning toasts.
