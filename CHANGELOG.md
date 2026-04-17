@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use `path.relative` for workspace containment check in auto-checkout (case-insensitive on macOS/Windows).
 - Filter empty strings from server path sets in `clearPending`/`undoChanges`.
 - Prevent shelve from silently falling back to a local shelf when there are no changes to shelve.
+- Catch unhandled promise rejections from `initRestClient()` on config/secret change events.
+- Case-insensitive excluded-paths Set and all consumer-side pending-change lookups (quick diff, decorations, auto-checkout, open diff).
+- Case-insensitive guards in `serverToLocal`/`localToServer` so mixed-case scopes are handled correctly.
+- Narrow activation events from `onStartupFinished` to `onCommand` triggers so the extension doesn't load in every VS Code window.
 
 ### Changed
 - Share Basic auth header construction between REST and SOAP clients.
