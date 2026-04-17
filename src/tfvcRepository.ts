@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { WorkspaceState } from './workspace/workspaceState';
 import { PendingChange, CheckinResult, SyncResult, HistoryEntry, ChangeType } from './workspace/types';
-import { localToServer, serverToLocal } from './workspace/pathMapping';
+import { localToServer, serverToLocal, pathKey, samePath } from './workspace/pathMapping';
 import { AdoRestClient } from './ado/restClient';
 import { encodeFileContent } from './ado/encoding';
 import { ShelvesetInfo } from './ado/types';
@@ -33,11 +33,11 @@ export class TfvcRepository implements vscode.Disposable {
     }
 
     get includedChanges(): PendingChange[] {
-        return this._pendingChanges.filter(c => !this._excludedPaths.has(c.localPath));
+        return this._pendingChanges.filter(c => !this._excludedPaths.has(pathKey(c.localPath)));
     }
 
     get excludedChanges(): PendingChange[] {
-        return this._pendingChanges.filter(c => this._excludedPaths.has(c.localPath));
+        return this._pendingChanges.filter(c => this._excludedPaths.has(pathKey(c.localPath)));
     }
 
     get conflicts(): PendingChange[] {
@@ -45,16 +45,16 @@ export class TfvcRepository implements vscode.Disposable {
     }
 
     isExcluded(localPath: string): boolean {
-        return this._excludedPaths.has(localPath);
+        return this._excludedPaths.has(pathKey(localPath));
     }
 
     include(localPath: string): void {
-        this._excludedPaths.delete(localPath);
+        this._excludedPaths.delete(pathKey(localPath));
         this._onDidChange.fire();
     }
 
     exclude(localPath: string): void {
-        this._excludedPaths.add(localPath);
+        this._excludedPaths.add(pathKey(localPath));
         this._onDidChange.fire();
     }
 
@@ -73,7 +73,7 @@ export class TfvcRepository implements vscode.Disposable {
         try {
             this._pendingChanges = await this.state.getPendingChanges();
             // Remove excluded paths that are no longer in pending changes
-            const currentPaths = new Set(this._pendingChanges.map(c => c.localPath));
+            const currentPaths = new Set(this._pendingChanges.map(c => pathKey(c.localPath)));
             for (const excluded of this._excludedPaths) {
                 if (!currentPaths.has(excluded)) {
                     this._excludedPaths.delete(excluded);
@@ -234,7 +234,6 @@ export class TfvcRepository implements vscode.Disposable {
 
         // Try REST-based shelving first, fall back to local
         try {
-
             const apiChanges = await Promise.all(changes.map(async c => {
                 const payload: any = {
                     changeType: c.changeType,
