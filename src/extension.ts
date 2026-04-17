@@ -146,7 +146,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
         const soapBase = baseUrl
             ? `${baseUrl.replace(/\/+$/, '')}${collectionPath}`
-            : `https://dev.azure.com/${org}`;
+            : `https://dev.azure.com/${encodeURIComponent(org)}`;
         soapClient = new AdoSoapClient(soapBase, pat);
         reviewComments.setSoapClient(soapClient);
 
