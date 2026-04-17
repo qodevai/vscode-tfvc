@@ -23,10 +23,12 @@ export function samePath(a: string, b: string): boolean {
  */
 export function serverToLocal(serverPath: string, scope: string, root: string): string {
     const normalizedScope = scope.endsWith('/') ? scope : scope + '/';
-    if (!serverPath.startsWith(normalizedScope) && serverPath !== scope) {
+    const lowerPath = serverPath.toLowerCase();
+    const lowerScope = normalizedScope.toLowerCase();
+    if (!lowerPath.startsWith(lowerScope) && lowerPath !== scope.toLowerCase()) {
         throw new Error(`Server path "${serverPath}" is not under scope "${scope}"`);
     }
-    const relative = serverPath === scope ? '' : serverPath.slice(normalizedScope.length);
+    const relative = lowerPath === scope.toLowerCase() ? '' : serverPath.slice(normalizedScope.length);
     return path.join(root, relative);
 }
 
@@ -38,10 +40,12 @@ export function serverToLocal(serverPath: string, scope: string, root: string): 
  */
 export function localToServer(localPath: string, scope: string, root: string): string {
     const normalizedRoot = root.endsWith(path.sep) ? root : root + path.sep;
-    if (!localPath.startsWith(normalizedRoot) && localPath !== root) {
+    const lowerPath = localPath.toLowerCase();
+    const lowerRoot = normalizedRoot.toLowerCase();
+    if (!lowerPath.startsWith(lowerRoot) && lowerPath !== root.toLowerCase()) {
         throw new Error(`Local path "${localPath}" is not under root "${root}"`);
     }
-    const relative = localPath === root ? '' : localPath.slice(normalizedRoot.length);
+    const relative = lowerPath === root.toLowerCase() ? '' : localPath.slice(normalizedRoot.length);
     if (!relative) {
         return scope;
     }
