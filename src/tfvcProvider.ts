@@ -319,14 +319,7 @@ export class TfvcSCMProvider implements vscode.Disposable {
         });
 
         const result = await this.repo.shelve(name, comment || undefined);
-        if (result.location === 'server') {
-            vscode.window.showInformationMessage(`TFVC: Shelved as "${name}" on the server.`);
-        } else {
-            vscode.window.showWarningMessage(
-                `TFVC: Server shelve failed — changes saved to a local shelf on this machine only. ` +
-                `See the TFVC output channel for details.`
-            );
-        }
+        this.showShelveResult(result, 'Shelved', name);
     }
 
     private async handleUnshelve(): Promise<void> {
@@ -334,14 +327,7 @@ export class TfvcSCMProvider implements vscode.Disposable {
         if (!picked) { return; }
 
         const result = await this.repo.unshelve(picked);
-        if (result.location === 'server') {
-            vscode.window.showInformationMessage(`TFVC: Unshelved "${picked}" from the server.`);
-        } else {
-            vscode.window.showWarningMessage(
-                `TFVC: Server unshelve failed — applied local shelf "${picked}" instead. ` +
-                `See the TFVC output channel for details.`
-            );
-        }
+        this.showShelveResult(result, 'Unshelved', picked);
     }
 
     private async handleListShelvesets(): Promise<void> {
@@ -355,14 +341,7 @@ export class TfvcSCMProvider implements vscode.Disposable {
 
         if (action === 'Unshelve') {
             const result = await this.repo.unshelve(picked);
-            if (result.location === 'server') {
-                vscode.window.showInformationMessage(`TFVC: Unshelved "${picked}" from the server.`);
-            } else {
-                vscode.window.showWarningMessage(
-                    `TFVC: Server unshelve failed — applied local shelf "${picked}" instead. ` +
-                    `See the TFVC output channel for details.`
-                );
-            }
+            this.showShelveResult(result, 'Unshelved', picked);
         } else if (action === 'Delete Shelveset') {
             const confirm = await vscode.window.showWarningMessage(
                 `Delete shelveset "${picked}"?`,
@@ -371,15 +350,18 @@ export class TfvcSCMProvider implements vscode.Disposable {
             );
             if (confirm === 'Delete') {
                 const result = await this.repo.deleteShelve(picked);
-                if (result.location === 'server') {
-                    vscode.window.showInformationMessage(`TFVC: Deleted shelveset "${picked}" on the server.`);
-                } else {
-                    vscode.window.showWarningMessage(
-                        `TFVC: Server delete failed — removed local shelf "${picked}" instead. ` +
-                        `See the TFVC output channel for details.`
-                    );
-                }
+                this.showShelveResult(result, 'Deleted shelveset', picked);
             }
+        }
+    }
+
+    private showShelveResult(result: { location: 'server' | 'local' }, action: string, name: string): void {
+        if (result.location === 'server') {
+            vscode.window.showInformationMessage(`TFVC: ${action} "${name}" on the server.`);
+        } else {
+            vscode.window.showWarningMessage(
+                `TFVC: Server ${action.toLowerCase()} failed — see the TFVC output channel for details.`
+            );
         }
     }
 
