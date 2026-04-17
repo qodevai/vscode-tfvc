@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { TfvcRepository, PendingChange, ChangeType } from './tfvcRepository';
+import { samePath } from './workspace/pathMapping';
 import { TfvcError } from './errors';
 import { parseWorkItemIds } from './workItemParsing';
 
@@ -274,7 +275,7 @@ export class TfvcSCMProvider implements vscode.Disposable {
         if (uris.length === 0) { return; }
 
         const uri = uris[0];
-        const change = this.repo.pendingChanges.find(c => c.localPath === uri.fsPath);
+        const change = this.repo.pendingChanges.find(c => samePath(c.localPath, uri.fsPath));
 
         if (!change || change.changeType === 'add') {
             // New file — no server version to diff against

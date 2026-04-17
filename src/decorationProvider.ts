@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { TfvcRepository } from './tfvcRepository';
+import { samePath } from './workspace/pathMapping';
 
 /**
  * Provides file decoration badges (M/A/D/C) in the Explorer tree
@@ -25,7 +26,7 @@ export class TfvcDecorationProvider implements vscode.FileDecorationProvider, vs
     }
 
     provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
-        const change = this.repo.pendingChanges.find(c => c.localPath === uri.fsPath);
+        const change = this.repo.pendingChanges.find(c => samePath(c.localPath, uri.fsPath));
         if (!change) {
             return undefined;
         }

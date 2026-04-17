@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { TfvcRepository } from './tfvcRepository';
+import { samePath } from './workspace/pathMapping';
 import { logError } from './outputChannel';
 
 /**
@@ -82,7 +83,7 @@ export class AutoCheckoutHandler implements vscode.Disposable {
         if (!this.isReadOnly(fsPath)) { return; }
 
         // Already has a pending change — no checkout needed
-        const existing = this.repo.pendingChanges.find(c => c.localPath === fsPath);
+        const existing = this.repo.pendingChanges.find(c => samePath(c.localPath, fsPath));
         if (existing) { return; }
 
         this.pendingCheckouts.add(fsPath);
