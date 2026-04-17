@@ -18,8 +18,13 @@ import {
     CreateChangesetRequest,
     ChangesetResponse,
     ChangesetInfo,
+    AdoShelvesetResponse,
+    AdoChangeResponse,
+    AdoChangesetResponse,
+    AdoWorkItemResponse,
 } from './types';
-import { httpRequest, httpRequestBuffer, HttpResponse, HttpBufferResponse } from './httpClient';
+import { httpRequest, httpRequestBuffer, HttpResponse, HttpBufferResponse, buildBasicAuthHeader } from './httpClient';
+import { classifyHttpError, TfvcError } from '../errors';
 
 const MAX_BATCH_SIZE = 200;
 
@@ -52,16 +57,31 @@ export class AdoRestClient {
         baseUrl = '',
         collectionPath = ''
     ) {
+        // Validate inputs at the boundary so callers get a clear error instead
+        // of later HTTP failures against a bogus URL like
+        // "https://dev.azure.com//_apis/...".
+        if (!pat) {
+            throw new TfvcError('AdoRestClient: PAT is required');
+        }
+        if (!project) {
+            throw new TfvcError('AdoRestClient: project is required');
+        }
+        if (!baseUrl && !org) {
+            throw new TfvcError('AdoRestClient: either org (cloud) or baseUrl (on-prem) must be provided');
+        }
         if (baseUrl) {
+            if (!/^https?:\/\//i.test(baseUrl)) {
+                throw new TfvcError(`AdoRestClient: baseUrl must start with http(s):// (got "${baseUrl}")`);
+            }
             this.base = `${baseUrl.replace(/\/+$/, '')}${collectionPath}`;
             this.apiVersion = '6.0';
         } else {
-            this.base = `https://dev.azure.com/${org}`;
+            this.base = `https://dev.azure.com/${encodeURIComponent(org)}`;
             this.apiVersion = '7.1';
         }
         this.project = project;
         this.scope = `$/${project}`;
-        this.authHeader = 'Basic ' + Buffer.from(`:${pat}`).toString('base64');
+        this.authHeader = buildBasicAuthHeader(pat);
     }
 
     // ── HTTP helpers ─────────────────────────────────────────────────────
@@ -89,7 +109,7 @@ export class AdoRestClient {
         const url = this.buildUrl(path, params);
         const res = await this.request(url);
         if (res.status >= 400) {
-            throw new Error(`ADO API error ${res.status}: ${res.body.slice(0, 500)}`);
+            throw classifyHttpError(res.status, res.body, 'ADO API error');
         }
         return JSON.parse(res.body) as T;
     }
@@ -98,7 +118,7 @@ export class AdoRestClient {
         const url = this.buildUrl(path, params);
         const res = await this.request(url, 'POST', { 'Content-Type': contentType }, typeof body === 'string' ? body : JSON.stringify(body));
         if (res.status >= 400) {
-            throw new Error(`ADO API error ${res.status}: ${res.body.slice(0, 500)}`);
+            throw classifyHttpError(res.status, res.body, 'ADO API error');
         }
         return JSON.parse(res.body) as T;
     }
@@ -107,7 +127,7 @@ export class AdoRestClient {
         const url = this.buildUrl(path, params);
         const res = await this.request(url, 'PATCH', { 'Content-Type': 'application/json-patch+json' }, JSON.stringify(body));
         if (res.status >= 400) {
-            throw new Error(`ADO API error ${res.status}: ${res.body.slice(0, 500)}`);
+            throw classifyHttpError(res.status, res.body, 'ADO API error');
         }
         return JSON.parse(res.body) as T;
     }
@@ -115,7 +135,7 @@ export class AdoRestClient {
     private async getRaw(url: string): Promise<string> {
         const res = await this.request(url);
         if (res.status >= 400) {
-            throw new Error(`ADO download error ${res.status}: ${res.body.slice(0, 200)}`);
+            throw classifyHttpError(res.status, res.body, 'ADO download error');
         }
         return res.body;
     }
@@ -130,7 +150,7 @@ export class AdoRestClient {
     private async getBuffer(url: string): Promise<Buffer> {
         const res = await this.requestBuffer(url);
         if (res.status >= 400) {
-            throw new Error(`ADO download error ${res.status}: ${res.body.toString('utf8').slice(0, 200)}`);
+            throw classifyHttpError(res.status, res.body.toString('utf8'), 'ADO download error');
         }
         return res.body;
     }
@@ -139,7 +159,7 @@ export class AdoRestClient {
         const url = this.buildUrl(path, params);
         const res = await this.request(url, 'DELETE');
         if (res.status >= 400) {
-            throw new Error(`ADO API error ${res.status}: ${res.body.slice(0, 500)}`);
+            throw classifyHttpError(res.status, res.body, 'ADO API error');
         }
     }
 
@@ -149,8 +169,8 @@ export class AdoRestClient {
         const params: Record<string, string> = {};
         if (owner) { params['owner'] = owner; }
 
-        const data = await this.get<AdoListResponse<any>>('/_apis/tfvc/shelvesets', params);
-        return (data.value || []).map((s: any) => ({
+        const data = await this.get<AdoListResponse<AdoShelvesetResponse>>('/_apis/tfvc/shelvesets', params);
+        return (data.value || []).map((s) => ({
             name: s.name || '',
             owner: s.owner?.displayName || '',
             ownerUniqueName: s.owner?.uniqueName || '',
@@ -161,8 +181,8 @@ export class AdoRestClient {
 
     async listShelvesetChanges(shelvesetName: string, shelvesetOwner: string): Promise<ShelvesetChange[]> {
         const shelveId = encodeURIComponent(`${shelvesetName};${shelvesetOwner}`);
-        const data = await this.get<AdoListResponse<any>>(`/_apis/tfvc/shelvesets/${shelveId}/changes`);
-        return (data.value || []).map((change: any) => ({
+        const data = await this.get<AdoListResponse<AdoChangeResponse>>(`/_apis/tfvc/shelvesets/${shelveId}/changes`);
+        return (data.value || []).map((change) => ({
             path: change.item?.path || '',
             changeType: change.changeType || '',
             downloadUrl: change.item?.url || '',
@@ -170,8 +190,8 @@ export class AdoRestClient {
     }
 
     async listChangesetChanges(changesetId: number): Promise<ShelvesetChange[]> {
-        const data = await this.get<AdoListResponse<any>>(`/_apis/tfvc/changesets/${changesetId}/changes`);
-        return (data.value || []).map((change: any) => ({
+        const data = await this.get<AdoListResponse<AdoChangeResponse>>(`/_apis/tfvc/changesets/${changesetId}/changes`);
+        return (data.value || []).map((change) => ({
             path: change.item?.path || '',
             changeType: change.changeType || '',
             downloadUrl: change.item?.url || '',
@@ -225,9 +245,9 @@ export class AdoRestClient {
         if (options.skip !== undefined) {
             params['$skip'] = String(options.skip);
         }
-        const data = await this.get<{ value: any[]; count?: number }>('/_apis/tfvc/changesets', params);
-        return (data.value || []).map((cs: any) => ({
-            changesetId: cs.changesetId,
+        const data = await this.get<AdoListResponse<AdoChangesetResponse>>('/_apis/tfvc/changesets', params);
+        return (data.value || []).map((cs) => ({
+            changesetId: cs.changesetId ?? 0,
             author: cs.author?.displayName || cs.checkedInBy?.displayName || '',
             createdDate: cs.createdDate || '',
             comment: cs.comment || '',
@@ -254,12 +274,20 @@ export class AdoRestClient {
 
     // ── File content ────────────────────────────────────────────────────
 
-    /** Fetch the latest committed version of a file as raw text. */
-    async fetchItemContent(tfvcPath: string): Promise<string> {
-        const qs = new URLSearchParams({
+    /**
+     * Fetch a file as raw text. Passes no version parameter to get HEAD, or
+     * pins to a specific changeset when `version` is provided.
+     */
+    async fetchItemContent(tfvcPath: string, version?: number): Promise<string> {
+        const params: Record<string, string> = {
             path: tfvcPath,
             'api-version': this.apiVersion,
-        }).toString();
+        };
+        if (version !== undefined) {
+            params.versionType = 'Changeset';
+            params.version = String(version);
+        }
+        const qs = new URLSearchParams(params).toString();
         const url = `${this.base}/_apis/tfvc/items?${qs}`;
         return this.getRaw(url);
     }
@@ -301,7 +329,7 @@ export class AdoRestClient {
             return [];
         }
 
-        const ids = result.workItems.slice(0, MAX_BATCH_SIZE).map(w => w.id);
+        const allIds = result.workItems.map(w => w.id);
         const fields = [
             'System.Id', 'System.Title', 'System.State',
             'System.CreatedDate', 'System.CreatedBy',
@@ -310,24 +338,31 @@ export class AdoRestClient {
             'Microsoft.VSTS.CodeReview.ContextType',
         ].join(',');
 
-        const items = await this.get<AdoListResponse<any>>('/_apis/wit/workitems', {
-            ids: ids.join(','),
-            fields,
-        });
-
-        return (items.value || []).map((wit: any) => {
-            const f = wit.fields || {};
-            return {
-                id: wit.id,
-                title: f['System.Title'] || '',
-                state: f['System.State'] || '',
-                createdDate: f['System.CreatedDate'] || '',
-                createdBy: f['System.CreatedBy']?.displayName || f['System.CreatedBy'] || '',
-                shelvesetName: f['Microsoft.VSTS.CodeReview.Context'] || '',
-                shelvesetOwner: f['Microsoft.VSTS.CodeReview.ContextOwner'] || '',
-                contextType: f['Microsoft.VSTS.CodeReview.ContextType'] || '',
-            };
-        });
+        // The workitems endpoint caps `ids` at 200 per request, so paginate
+        // instead of silently truncating large review backlogs.
+        const reviews: CodeReviewRequest[] = [];
+        for (let i = 0; i < allIds.length; i += MAX_BATCH_SIZE) {
+            const batch = allIds.slice(i, i + MAX_BATCH_SIZE);
+            const items = await this.get<AdoListResponse<AdoWorkItemResponse>>('/_apis/wit/workitems', {
+                ids: batch.join(','),
+                fields,
+            });
+            for (const wit of items.value || []) {
+                const f = wit.fields || {};
+                const createdBy = f['System.CreatedBy'] as { displayName?: string } | string | undefined;
+                reviews.push({
+                    id: wit.id,
+                    title: (f['System.Title'] as string) || '',
+                    state: (f['System.State'] as string) || '',
+                    createdDate: (f['System.CreatedDate'] as string) || '',
+                    createdBy: typeof createdBy === 'string' ? createdBy : (createdBy?.displayName || ''),
+                    shelvesetName: (f['Microsoft.VSTS.CodeReview.Context'] as string) || '',
+                    shelvesetOwner: (f['Microsoft.VSTS.CodeReview.ContextOwner'] as string) || '',
+                    contextType: (f['Microsoft.VSTS.CodeReview.ContextType'] as string) || '',
+                });
+            }
+        }
+        return reviews;
     }
 
     async createCodeReviewResponse(

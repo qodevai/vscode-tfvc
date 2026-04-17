@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { TfvcRepository, PendingChange, ChangeType } from './tfvcRepository';
+import { samePath } from './workspace/pathMapping';
 import { TfvcError } from './errors';
+import { parseWorkItemIds } from './workItemParsing';
 
 const TFVC_SCHEME = 'tfvc';
 
@@ -165,12 +167,10 @@ export class TfvcSCMProvider implements vscode.Disposable {
             return;
         }
 
-        // Parse work item IDs from comment: "#1234" or "WI:1234"
-        const workItemMatches = comment.matchAll(/#(\d+)|WI:(\d+)/gi);
-        const workItems: number[] = [];
-        for (const m of workItemMatches) {
-            workItems.push(parseInt(m[1] || m[2], 10));
-        }
+        // Parse work item IDs from comment: "#1234" or "WI:1234". Dedupe so
+        // mentioning the same ID twice ("#1234 fixes #1234") doesn't send it
+        // twice to ADO (which rejects duplicate links).
+        const workItems = parseWorkItemIds(comment);
 
         const files = included.map(c => c.localPath);
         const result = await this.repo.checkin(files, comment, workItems.length > 0 ? workItems : undefined);
@@ -275,7 +275,7 @@ export class TfvcSCMProvider implements vscode.Disposable {
         if (uris.length === 0) { return; }
 
         const uri = uris[0];
-        const change = this.repo.pendingChanges.find(c => c.localPath === uri.fsPath);
+        const change = this.repo.pendingChanges.find(c => samePath(c.localPath, uri.fsPath));
 
         if (!change || change.changeType === 'add') {
             // New file — no server version to diff against
@@ -319,16 +319,16 @@ export class TfvcSCMProvider implements vscode.Disposable {
             prompt: 'Comment (optional)',
         });
 
-        await this.repo.shelve(name, comment || undefined);
-        vscode.window.showInformationMessage(`TFVC: Shelved as "${name}".`);
+        const result = await this.repo.shelve(name, comment || undefined);
+        this.showShelveResult(result, 'Shelved', name);
     }
 
     private async handleUnshelve(): Promise<void> {
         const picked = await this.pickShelveset('Select shelveset to unshelve');
         if (!picked) { return; }
 
-        await this.repo.unshelve(picked);
-        vscode.window.showInformationMessage(`TFVC: Unshelved "${picked}".`);
+        const result = await this.repo.unshelve(picked);
+        this.showShelveResult(result, 'Unshelved', picked);
     }
 
     private async handleListShelvesets(): Promise<void> {
@@ -341,8 +341,8 @@ export class TfvcSCMProvider implements vscode.Disposable {
         );
 
         if (action === 'Unshelve') {
-            await this.repo.unshelve(picked);
-            vscode.window.showInformationMessage(`TFVC: Unshelved "${picked}".`);
+            const result = await this.repo.unshelve(picked);
+            this.showShelveResult(result, 'Unshelved', picked);
         } else if (action === 'Delete Shelveset') {
             const confirm = await vscode.window.showWarningMessage(
                 `Delete shelveset "${picked}"?`,
@@ -350,9 +350,19 @@ export class TfvcSCMProvider implements vscode.Disposable {
                 'Delete'
             );
             if (confirm === 'Delete') {
-                await this.repo.deleteShelve(picked);
-                vscode.window.showInformationMessage(`TFVC: Deleted shelveset "${picked}".`);
+                const result = await this.repo.deleteShelve(picked);
+                this.showShelveResult(result, 'Deleted shelveset', picked);
             }
+        }
+    }
+
+    private showShelveResult(result: { location: 'server' | 'local' }, action: string, name: string): void {
+        if (result.location === 'server') {
+            vscode.window.showInformationMessage(`TFVC: ${action} "${name}" on the server.`);
+        } else {
+            vscode.window.showWarningMessage(
+                `TFVC: Server ${action.toLowerCase()} failed — see the TFVC output channel for details.`
+            );
         }
     }
 

@@ -21,7 +21,7 @@ export class ReviewCommentController implements vscode.Disposable {
         this.disposables.push(this.controller);
     }
 
-    setSoapClient(client: AdoSoapClient): void {
+    setSoapClient(client: AdoSoapClient | undefined): void {
         this.soapClient = client;
     }
 

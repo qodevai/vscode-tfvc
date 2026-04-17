@@ -25,7 +25,7 @@ export class ReviewFileContentProvider implements vscode.TextDocumentContentProv
         );
     }
 
-    setRestClient(client: AdoRestClient): void {
+    setRestClient(client: AdoRestClient | undefined): void {
         this.restClient = client;
     }
 

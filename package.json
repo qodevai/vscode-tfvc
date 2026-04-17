@@ -29,6 +29,7 @@
   ],
   "activationEvents": [
     "workspaceContains:**/.vscode-tfvc/**",
+    "onCommand:tfvc.setPat",
     "onCommand:tfvc.initWorkspace"
   ],
   "main": "./out/extension.js",
@@ -139,11 +140,6 @@
         "title": "Submit Review Verdict",
         "category": "TFVC",
         "icon": "$(pass)"
-      },
-      {
-        "command": "tfvc.postComment",
-        "title": "Post Inline Comment",
-        "category": "TFVC"
       },
       {
         "command": "tfvc.initWorkspace",
@@ -323,11 +319,6 @@
           "default": 0,
           "minimum": 0,
           "description": "Auto-refresh interval in seconds. Set to 0 to disable."
-        },
-        "tfvc.showOutputOnError": {
-          "type": "boolean",
-          "default": true,
-          "description": "Automatically show the TFVC output channel when a tf command fails."
         }
       }
     }

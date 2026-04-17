@@ -1,6 +1,8 @@
 import * as fs from 'fs';
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { TfvcRepository } from './tfvcRepository';
+import { samePath } from './workspace/pathMapping';
 import { logError } from './outputChannel';
 
 /**
@@ -12,6 +14,8 @@ import { logError } from './outputChannel';
 export class AutoCheckoutHandler implements vscode.Disposable {
     private disposables: vscode.Disposable[] = [];
     private pendingCheckouts = new Set<string>();
+    /** Files we've already warned about this session (dedupe toast spam). */
+    private reportedFailures = new Set<string>();
 
     constructor(
         private repo: TfvcRepository,
@@ -68,8 +72,9 @@ export class AutoCheckoutHandler implements vscode.Disposable {
 
         const fsPath = uri.fsPath;
 
-        // Must be within workspace
-        if (!fsPath.startsWith(this.workspaceRoot)) { return; }
+        // Must be within workspace (case-insensitive for macOS/Windows)
+        const rel = path.relative(this.workspaceRoot, fsPath);
+        if (!rel || rel.startsWith('..')) { return; }
 
         // Avoid duplicate concurrent checkouts for the same file
         if (this.pendingCheckouts.has(fsPath)) { return; }
@@ -78,17 +83,33 @@ export class AutoCheckoutHandler implements vscode.Disposable {
         if (!this.isReadOnly(fsPath)) { return; }
 
         // Already has a pending change — no checkout needed
-        const existing = this.repo.pendingChanges.find(c => c.localPath === fsPath);
+        const existing = this.repo.pendingChanges.find(c => samePath(c.localPath, fsPath));
         if (existing) { return; }
 
         this.pendingCheckouts.add(fsPath);
         try {
             await this.repo.checkout([fsPath]);
+            // Clear any prior failure flag so future failures re-surface.
+            this.reportedFailures.delete(fsPath);
         } catch (err) {
             logError(`Auto-checkout failed for ${fsPath}: ${err}`);
+            this.notifyFailure(fsPath, err);
         } finally {
             this.pendingCheckouts.delete(fsPath);
         }
+    }
+
+    private notifyFailure(fsPath: string, err: unknown): void {
+        // Dedupe: only warn once per file per session so rapid edits/saves
+        // don't spam the user with identical toasts.
+        if (this.reportedFailures.has(fsPath)) { return; }
+        this.reportedFailures.add(fsPath);
+
+        const msg = err instanceof Error ? err.message : String(err);
+        const fileName = fsPath.split(/[\\/]/).pop() || fsPath;
+        vscode.window.showWarningMessage(
+            `TFVC auto-checkout failed for ${fileName}: ${msg}. The file remains read-only — run TFVC: Check Out manually if needed.`
+        );
     }
 
     private isReadOnly(fsPath: string): boolean {

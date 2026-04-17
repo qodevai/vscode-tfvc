@@ -50,15 +50,14 @@ Works with both Azure DevOps Services (cloud) and Azure DevOps Server (on-prem).
 | `tfvc.adoCollectionPath` | On-prem collection path (e.g. `/tfs/DefaultCollection`). | `""` |
 | `tfvc.autoCheckout` | When to auto-checkout files: `disabled`, `onSave`, `onEdit`. | `onSave` |
 | `tfvc.autoRefreshInterval` | Auto-refresh interval in seconds. `0` disables. | `0` |
-| `tfvc.showOutputOnError` | Show the TFVC output channel when a command fails. | `true` |
 
 ## Known Limitations
 
 - **Large repositories**: initial workspace initialization downloads baseline metadata for all mapped files. This can be slow for very large trees.
 - **No proxy support**: the extension uses Node's default `https` stack. HTTP/HTTPS proxies are not explicitly handled.
 - **SOAP parsing via regex**: the code review comment client parses SOAP responses with regex rather than a full XML parser. Well-formed ADO responses work; unusual responses may not.
-- **Single workspace folder**: TFVC mapping is tracked per workspace root; multi-root workspaces are not fully supported.
-- **No retry / pagination polish**: transient network failures aren't automatically retried, and very long history or review lists may not paginate.
+- **Multi-root workspaces**: the extension picks a single workspace folder and warns if multiple folders contain `.vscode-tfvc/`. For full isolation, open each TFVC project in its own VS Code window.
+- **No automatic retry**: transient network failures aren't automatically retried.
 
 ## Commands
 
@@ -69,7 +68,7 @@ All commands are available under the `TFVC:` category in the command palette:
 - `Undo`, `Undo All Changes`, `Add File`, `Delete File`
 - `Open Diff`, `Open File`, `Show History`
 - `Shelve Changes`, `Unshelve Changes`, `List Shelvesets`
-- `Refresh Code Reviews`, `Submit Review Verdict`, `Post Inline Comment`
+- `Refresh Code Reviews`, `Submit Review Verdict`
 
 ## License
 

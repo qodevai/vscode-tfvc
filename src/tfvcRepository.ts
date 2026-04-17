@@ -3,8 +3,9 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { WorkspaceState } from './workspace/workspaceState';
 import { PendingChange, CheckinResult, SyncResult, HistoryEntry, ChangeType } from './workspace/types';
-import { localToServer, serverToLocal } from './workspace/pathMapping';
+import { localToServer, serverToLocal, pathKey, samePath } from './workspace/pathMapping';
 import { AdoRestClient } from './ado/restClient';
+import { encodeFileContent } from './ado/encoding';
 import { ShelvesetInfo } from './ado/types';
 import { TfvcError } from './errors';
 import { logError } from './outputChannel';
@@ -32,11 +33,11 @@ export class TfvcRepository implements vscode.Disposable {
     }
 
     get includedChanges(): PendingChange[] {
-        return this._pendingChanges.filter(c => !this._excludedPaths.has(c.localPath));
+        return this._pendingChanges.filter(c => !this._excludedPaths.has(pathKey(c.localPath)));
     }
 
     get excludedChanges(): PendingChange[] {
-        return this._pendingChanges.filter(c => this._excludedPaths.has(c.localPath));
+        return this._pendingChanges.filter(c => this._excludedPaths.has(pathKey(c.localPath)));
     }
 
     get conflicts(): PendingChange[] {
@@ -44,16 +45,16 @@ export class TfvcRepository implements vscode.Disposable {
     }
 
     isExcluded(localPath: string): boolean {
-        return this._excludedPaths.has(localPath);
+        return this._excludedPaths.has(pathKey(localPath));
     }
 
     include(localPath: string): void {
-        this._excludedPaths.delete(localPath);
+        this._excludedPaths.delete(pathKey(localPath));
         this._onDidChange.fire();
     }
 
     exclude(localPath: string): void {
-        this._excludedPaths.add(localPath);
+        this._excludedPaths.add(pathKey(localPath));
         this._onDidChange.fire();
     }
 
@@ -72,7 +73,7 @@ export class TfvcRepository implements vscode.Disposable {
         try {
             this._pendingChanges = await this.state.getPendingChanges();
             // Remove excluded paths that are no longer in pending changes
-            const currentPaths = new Set(this._pendingChanges.map(c => c.localPath));
+            const currentPaths = new Set(this._pendingChanges.map(c => pathKey(c.localPath)));
             for (const excluded of this._excludedPaths) {
                 if (!currentPaths.has(excluded)) {
                     this._excludedPaths.delete(excluded);
@@ -133,15 +134,7 @@ export class TfvcRepository implements vscode.Disposable {
             }
 
             if (c.changeType !== 'delete') {
-                const content = fs.readFileSync(c.localPath);
-                // Detect binary: check for null bytes in first 8KB
-                const sample = content.subarray(0, 8192);
-                const isBinary = sample.includes(0);
-
-                payload.newContent = {
-                    content: isBinary ? content.toString('base64') : content.toString('utf8'),
-                    contentType: isBinary ? 'base64Encoded' : 'rawText',
-                };
+                payload.newContent = encodeFileContent(fs.readFileSync(c.localPath));
             } else {
                 const baseline = this.state.getBaselineItemByServer(c.serverPath);
                 if (baseline) {
@@ -228,14 +221,19 @@ export class TfvcRepository implements vscode.Disposable {
         await this.refresh();
     }
 
-    async shelve(name: string, comment?: string): Promise<void> {
+    /**
+     * Shelve pending changes. Returns where the shelveset was persisted so the
+     * caller can tell the user: server-side shelvesets are visible to
+     * teammates and across machines; the local fallback is not.
+     */
+    async shelve(name: string, comment?: string): Promise<{ location: 'server' | 'local'; error?: unknown }> {
+        const changes = await this.state.getPendingChanges();
+        if (changes.length === 0) {
+            throw new TfvcError('No changes to shelve.');
+        }
+
         // Try REST-based shelving first, fall back to local
         try {
-            const changes = await this.state.getPendingChanges();
-            if (changes.length === 0) {
-                throw new TfvcError('No changes to shelve.');
-            }
-
             const apiChanges = await Promise.all(changes.map(async c => {
                 const payload: any = {
                     changeType: c.changeType,
@@ -243,27 +241,29 @@ export class TfvcRepository implements vscode.Disposable {
                 };
 
                 if (c.changeType !== 'delete' && fs.existsSync(c.localPath)) {
-                    const content = fs.readFileSync(c.localPath);
-                    const sample = content.subarray(0, 8192);
-                    const isBinary = sample.includes(0);
-
-                    payload.newContent = {
-                        content: isBinary ? content.toString('base64') : content.toString('utf8'),
-                        contentType: isBinary ? 'base64Encoded' : 'rawText',
-                    };
+                    payload.newContent = encodeFileContent(fs.readFileSync(c.localPath));
                 }
 
                 return payload;
             }));
 
             await this.restClient.createShelveset(name, apiChanges, comment);
-        } catch {
-            // REST shelving unavailable — fall back to local
+            return { location: 'server' };
+        } catch (err) {
+            // REST shelving unavailable — fall back to local so the user's
+            // in-flight work isn't lost, but surface the failure so they can
+            // retry once the server is reachable. Local shelves are per-machine.
+            logError(`Server shelve failed, saving to local shelf: ${err}`);
             await this.state.saveLocalShelf(name, comment);
+            return { location: 'local', error: err };
         }
     }
 
-    async unshelve(name: string): Promise<void> {
+    /**
+     * Unshelve by name. Returns whether the contents came from the server or
+     * the local fallback shelf.
+     */
+    async unshelve(name: string): Promise<{ location: 'server' | 'local'; error?: unknown }> {
         // Try REST unshelve first: download shelveset changes and apply
         try {
             const identity = await this.restClient.getBotIdentity();
@@ -294,12 +294,15 @@ export class TfvcRepository implements vscode.Disposable {
                     }
                 }
             }
-        } catch {
+            await this.refresh();
+            return { location: 'server' };
+        } catch (err) {
             // Fall back to local shelf
+            logError(`Server unshelve failed, applying local shelf: ${err}`);
             await this.state.applyLocalShelf(name);
+            await this.refresh();
+            return { location: 'local', error: err };
         }
-
-        await this.refresh();
     }
 
     async listShelvesets(owner?: string): Promise<Array<{ name: string; owner: string; date: string; comment: string }>> {
@@ -322,13 +325,15 @@ export class TfvcRepository implements vscode.Disposable {
         }
     }
 
-    async deleteShelve(name: string): Promise<void> {
+    async deleteShelve(name: string): Promise<{ location: 'server' | 'local'; error?: unknown }> {
         try {
             const identity = await this.restClient.getBotIdentity();
             await this.restClient.deleteShelveset(name, identity.displayName);
-        } catch {
-            // Fall back to deleting local shelf
+            return { location: 'server' };
+        } catch (err) {
+            logError(`Server deleteShelveset failed, deleting local shelf: ${err}`);
             this.state.deleteLocalShelf(name);
+            return { location: 'local', error: err };
         }
     }
 
@@ -347,8 +352,25 @@ export class TfvcRepository implements vscode.Disposable {
         }));
     }
 
-    async getServerContent(serverPath: string, _version?: string): Promise<string> {
-        return this.restClient.fetchItemContent(serverPath);
+    /**
+     * Fetch file content from the server. When `version` is omitted, returns
+     * HEAD. For diffs against the user's synced state, prefer the baseline
+     * version (see `getBaselineServerContent`) so local edits diff against
+     * what the user actually has, not a newer server revision.
+     */
+    async getServerContent(serverPath: string, version?: number): Promise<string> {
+        return this.restClient.fetchItemContent(serverPath, version);
+    }
+
+    /**
+     * Fetch the version of a file that matches the user's current baseline —
+     * i.e. the server revision the user last synced. This is what quick-diff
+     * should compare against so in-flight edits aren't mixed with server-side
+     * changes the user hasn't pulled yet.
+     */
+    async getBaselineServerContent(serverPath: string): Promise<string> {
+        const baseline = this.state.getBaselineItemByServer(serverPath);
+        return this.restClient.fetchItemContent(serverPath, baseline?.version);
     }
 
     /** Initialize the workspace (first-time setup). */

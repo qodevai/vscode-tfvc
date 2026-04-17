@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { TfvcRepository } from './tfvcRepository';
+import { samePath } from './workspace/pathMapping';
 import { logError } from './outputChannel';
 
 const TFVC_SCHEME = 'tfvc';
@@ -36,7 +37,7 @@ export class TfvcQuickDiffProvider implements vscode.QuickDiffProvider, vscode.T
      * for a given local file.
      */
     provideOriginalResource(uri: vscode.Uri): vscode.Uri | undefined {
-        const change = this.repo.pendingChanges.find(c => c.localPath === uri.fsPath);
+        const change = this.repo.pendingChanges.find(c => samePath(c.localPath, uri.fsPath));
         if (!change || !change.serverPath) {
             return undefined;
         }
@@ -63,7 +64,9 @@ export class TfvcQuickDiffProvider implements vscode.QuickDiffProvider, vscode.T
         }
 
         try {
-            const content = await this.repo.getServerContent(serverPath);
+            // Diff against the baseline version the user last synced, not HEAD —
+            // otherwise newer server-side changes show up mixed with local edits.
+            const content = await this.repo.getBaselineServerContent(serverPath);
             this.contentCache.set(serverPath, { content, timestamp: Date.now() });
             return content;
         } catch (err) {
@@ -74,7 +77,7 @@ export class TfvcQuickDiffProvider implements vscode.QuickDiffProvider, vscode.T
 
     /** Force refresh of diff decorations for a file. */
     invalidate(uri: vscode.Uri): void {
-        const change = this.repo.pendingChanges.find(c => c.localPath === uri.fsPath);
+        const change = this.repo.pendingChanges.find(c => samePath(c.localPath, uri.fsPath));
         if (change?.serverPath) {
             const serverUri = vscode.Uri.parse(`${TFVC_SCHEME}:${change.serverPath}`);
             this.contentCache.delete(change.serverPath);

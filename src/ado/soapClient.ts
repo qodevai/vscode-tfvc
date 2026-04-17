@@ -5,8 +5,9 @@
  * only SOAP via DiscussionWebService.asmx.
  */
 
-import { httpRequest } from './httpClient';
+import { httpRequest, buildBasicAuthHeader } from './httpClient';
 import { extractAttr, decodeXmlEntities, escapeXmlAttr } from '../xmlUtils';
+import { classifyHttpError } from '../errors';
 
 const NS_SOAP = 'http://schemas.xmlsoap.org/soap/envelope/';
 const NS_DISC = 'http://schemas.microsoft.com/TeamFoundation/2012/Discussion';
@@ -52,7 +53,7 @@ export class AdoSoapClient {
 
     constructor(base: string, pat: string) {
         this.base = base;
-        this.authHeader = 'Basic ' + Buffer.from(`:${pat}`).toString('base64');
+        this.authHeader = buildBasicAuthHeader(pat);
     }
 
     async postInlineComment(params: InlineCommentParams): Promise<number> {
@@ -143,7 +144,7 @@ export class AdoSoapClient {
         });
 
         if (res.status >= 400) {
-            throw new Error(`SOAP error ${res.status}: ${res.body.slice(0, 300)}`);
+            throw classifyHttpError(res.status, res.body, 'SOAP error');
         }
         return res.body;
     }

@@ -193,6 +193,194 @@ describe('WorkspaceState', () => {
         assert.strictEqual(changes.length, 0);
     });
 
+    it('syncBaseline refuses to wipe baseline when server returns no items (C3)', async () => {
+        // Seed baseline with a tracked file
+        const stateDir = path.join(tmpDir, '.vscode-tfvc');
+        fs.mkdirSync(stateDir, { recursive: true });
+        const filePath = path.join(tmpDir, 'important.txt');
+        const content = 'important content';
+        fs.writeFileSync(filePath, content);
+        fs.chmodSync(filePath, 0o444);
+        const hash = md5base64(content);
+        const mtime = fs.statSync(filePath).mtimeMs;
+        const baseline = {
+            scope,
+            root: tmpDir,
+            version: 5,
+            items: [{
+                serverPath: '$/TestProject/important.txt',
+                localPath: filePath,
+                version: 5,
+                hash,
+                mtime,
+                isFolder: false,
+            }],
+        };
+        fs.writeFileSync(path.join(stateDir, 'baseline.json'), JSON.stringify(baseline));
+        fs.writeFileSync(path.join(stateDir, 'pending.json'), '{"adds":[],"deletes":[],"checkouts":[]}');
+
+        const state = new WorkspaceState(tmpDir, scope);
+
+        // Mock a rest client that returns an empty list (simulating transient failure)
+        const mockRestClient = {
+            listItems: async () => [],
+            downloadItemBuffer: async () => Buffer.from(''),
+        } as any;
+
+        await assert.rejects(
+            () => state.syncBaseline(mockRestClient),
+            /Refusing to delete/,
+            'syncBaseline should throw on suspicious empty response'
+        );
+
+        // File must still exist
+        assert.ok(fs.existsSync(filePath), 'local file should not be deleted');
+
+        // Baseline must be preserved on disk
+        const persistedBaseline = JSON.parse(fs.readFileSync(path.join(stateDir, 'baseline.json'), 'utf8'));
+        assert.strictEqual(persistedBaseline.items.length, 1);
+    });
+
+    it('syncBaseline reports conflict when new server file collides with local file (C4)', async () => {
+        // No baseline entry for this path; a local file already exists there.
+        const stateDir = path.join(tmpDir, '.vscode-tfvc');
+        fs.mkdirSync(stateDir, { recursive: true });
+        fs.writeFileSync(path.join(stateDir, 'baseline.json'), JSON.stringify({ scope, root: tmpDir, version: 0, items: [] }));
+        fs.writeFileSync(path.join(stateDir, 'pending.json'), '{"adds":[],"deletes":[],"checkouts":[]}');
+
+        const localPath = path.join(tmpDir, 'collision.txt');
+        const localContent = 'my local work';
+        fs.writeFileSync(localPath, localContent);
+
+        const state = new WorkspaceState(tmpDir, scope);
+
+        let downloadCalled = false;
+        const mockRestClient = {
+            listItems: async () => [{
+                path: '$/TestProject/collision.txt',
+                url: '',
+                isFolder: false,
+                version: 1,
+            }],
+            downloadItemBuffer: async () => {
+                downloadCalled = true;
+                return Buffer.from('server content');
+            },
+        } as any;
+
+        const results = await state.syncBaseline(mockRestClient);
+
+        assert.strictEqual(downloadCalled, false, 'should not download when local file collides');
+        const conflicts = results.filter(r => r.action === 'conflict');
+        assert.strictEqual(conflicts.length, 1);
+        assert.strictEqual(conflicts[0].path, localPath);
+        // Local content preserved
+        assert.strictEqual(fs.readFileSync(localPath, 'utf8'), localContent);
+    });
+
+    it('getBaselineItemByServer matches case-insensitively (I16)', () => {
+        const stateDir = path.join(tmpDir, '.vscode-tfvc');
+        fs.mkdirSync(stateDir, { recursive: true });
+        const localPath = path.join(tmpDir, 'Foo.ts');
+        const baseline = {
+            scope,
+            root: tmpDir,
+            version: 1,
+            items: [{
+                serverPath: '$/TestProject/Foo.ts',
+                localPath,
+                version: 1,
+                hash: 'abc',
+                mtime: 0,
+                isFolder: false,
+            }],
+        };
+        fs.writeFileSync(path.join(stateDir, 'baseline.json'), JSON.stringify(baseline));
+        fs.writeFileSync(path.join(stateDir, 'pending.json'), '{"adds":[],"deletes":[],"checkouts":[]}');
+
+        const state = new WorkspaceState(tmpDir, scope);
+
+        // Lookup with different casing should still find the entry.
+        const found = state.getBaselineItemByServer('$/testproject/FOO.ts');
+        assert.ok(found, 'case-insensitive lookup should succeed');
+        assert.strictEqual(found!.serverPath, '$/TestProject/Foo.ts');
+    });
+
+    it('syncBaseline issues per-path listItems calls when paths are scoped (I14)', async () => {
+        const stateDir = path.join(tmpDir, '.vscode-tfvc');
+        fs.mkdirSync(stateDir, { recursive: true });
+        fs.writeFileSync(path.join(stateDir, 'baseline.json'), JSON.stringify({ scope, root: tmpDir, version: 0, items: [] }));
+        fs.writeFileSync(path.join(stateDir, 'pending.json'), '{"adds":[],"deletes":[],"checkouts":[]}');
+
+        const state = new WorkspaceState(tmpDir, scope);
+
+        const listCalls: string[] = [];
+        const mockRestClient = {
+            listItems: async (scopePath: string) => {
+                listCalls.push(scopePath);
+                // Return a single matching file per requested scope
+                return [{ path: scopePath, url: '', isFolder: false, version: 1 }];
+            },
+            downloadItemBuffer: async () => Buffer.from('content'),
+        } as any;
+
+        const p1 = path.join(tmpDir, 'a.txt');
+        const p2 = path.join(tmpDir, 'b.txt');
+        await state.syncBaseline(mockRestClient, [p1, p2]);
+
+        // Two requested paths ⇒ exactly two listItems calls, neither of which
+        // scans the entire workspace scope.
+        assert.strictEqual(listCalls.length, 2, 'one listItems call per requested path');
+        assert.ok(!listCalls.includes(scope), 'should not enumerate the whole workspace scope');
+        assert.deepStrictEqual(listCalls.sort(), [
+            '$/TestProject/a.txt',
+            '$/TestProject/b.txt',
+        ]);
+    });
+
+    it('undoChanges recreates missing parent directories (C8)', async () => {
+        // Seed baseline with a file under a subdirectory
+        const stateDir = path.join(tmpDir, '.vscode-tfvc');
+        fs.mkdirSync(stateDir, { recursive: true });
+        const subDir = path.join(tmpDir, 'nested', 'dir');
+        fs.mkdirSync(subDir, { recursive: true });
+        const filePath = path.join(subDir, 'file.txt');
+        const originalContent = 'original content';
+        fs.writeFileSync(filePath, originalContent);
+        const originalHash = md5base64(originalContent);
+
+        const baseline = {
+            scope,
+            root: tmpDir,
+            version: 1,
+            items: [{
+                serverPath: '$/TestProject/nested/dir/file.txt',
+                localPath: filePath,
+                version: 1,
+                hash: originalHash,
+                mtime: fs.statSync(filePath).mtimeMs,
+                isFolder: false,
+            }],
+        };
+        fs.writeFileSync(path.join(stateDir, 'baseline.json'), JSON.stringify(baseline));
+        fs.writeFileSync(path.join(stateDir, 'pending.json'), '{"adds":[],"deletes":[],"checkouts":[]}');
+
+        // User deleted the whole subdir (not just the file)
+        fs.rmSync(path.join(tmpDir, 'nested'), { recursive: true, force: true });
+        assert.ok(!fs.existsSync(filePath));
+
+        const state = new WorkspaceState(tmpDir, scope);
+
+        const mockRestClient = {
+            downloadItemBuffer: async () => Buffer.from(originalContent),
+        } as any;
+
+        await state.undoChanges(mockRestClient, [filePath]);
+
+        assert.ok(fs.existsSync(filePath), 'file should be restored');
+        assert.strictEqual(fs.readFileSync(filePath, 'utf8'), originalContent);
+    });
+
     it('local shelf round-trip: save and apply', async () => {
         const stateDir = path.join(tmpDir, '.vscode-tfvc');
         fs.mkdirSync(stateDir, { recursive: true });

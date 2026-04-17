@@ -15,6 +15,7 @@ import { ReviewVerdict } from './ado/types';
 import { ReviewCommentController } from './providers/comments';
 import { normalizeChangeLabel } from './changeType';
 import { getOutputChannel, logError } from './outputChannel';
+import { isIgnoredPath } from './workspace/watcherIgnore';
 
 const STATE_DIR = '.vscode-tfvc';
 
@@ -24,18 +25,62 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const outputChannel = getOutputChannel();
     outputChannel.appendLine('TFVC extension activating...');
 
+    // ── Bootstrap commands (always available, even without a workspace) ─
+    disposables.push(
+        vscode.commands.registerCommand('tfvc.setPat', async () => {
+            const pat = await vscode.window.showInputBox({
+                prompt: 'Azure DevOps Personal Access Token',
+                password: true,
+                placeHolder: 'Paste your PAT here',
+            });
+            if (pat === undefined) { return; }
+            if (pat === '') {
+                await context.secrets.delete('tfvc.pat');
+                vscode.window.showInformationMessage('TFVC: PAT removed from secure storage.');
+            } else {
+                await context.secrets.store('tfvc.pat', pat);
+                vscode.window.showInformationMessage('TFVC: PAT stored securely.');
+            }
+        }),
+    );
+    context.subscriptions.push(...disposables.splice(0));
+
     const config = vscode.workspace.getConfiguration('tfvc');
 
-    // Find workspace root — check for .vscode-tfvc/ or adoProject config
-    const workspaceRoot = findWorkspaceRoot();
+    // Find workspace root — check for .vscode-tfvc/ or adoProject config.
+    // In multi-root workspaces we pick a single root and surface the choice
+    // to the user so they know which folder TFVC is wired up to.
+    const tfvcRoots = findTfvcRoots();
     const hasConfig = !!config.get<string>('adoProject', '');
 
-    if (!workspaceRoot && !hasConfig) {
+    if (tfvcRoots.length === 0 && !hasConfig) {
         outputChannel.appendLine('No TFVC workspace detected (.vscode-tfvc/ not found, no tfvc.adoProject configured). Extension inactive.');
         return;
     }
 
-    const root = workspaceRoot || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    let root: string | undefined;
+    if (tfvcRoots.length === 1) {
+        root = tfvcRoots[0];
+    } else if (tfvcRoots.length > 1) {
+        root = tfvcRoots[0];
+        const list = tfvcRoots.map(r => `  • ${r}`).join('\n');
+        outputChannel.appendLine(
+            `Multiple TFVC workspaces found; using ${root}. Others:\n${list}`
+        );
+        vscode.window.showWarningMessage(
+            `TFVC: multiple folders contain .vscode-tfvc/. Using "${root}". Close others or split into separate VS Code windows.`
+        );
+    } else {
+        // No .vscode-tfvc/ folder found — fall back to the first workspace
+        // folder, but flag the guess if there are several folders to pick from.
+        const folders = vscode.workspace.workspaceFolders;
+        root = folders?.[0]?.uri.fsPath;
+        if (folders && folders.length > 1) {
+            vscode.window.showWarningMessage(
+                `TFVC: no .vscode-tfvc/ found; defaulting to "${root}". Run "TFVC: Initialize Workspace" in the correct folder to pin the workspace root.`
+            );
+        }
+    }
     if (!root) {
         outputChannel.appendLine('No workspace folder open. Extension inactive.');
         return;
@@ -61,17 +106,37 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     let soapClient: AdoSoapClient | undefined;
     let repo: TfvcRepository | undefined;
 
+    // Disposables owned by the current restClient/repo. Recreated on
+    // config change so that switching to a different ADO project/org
+    // swaps in a fresh repository with the new scope.
+    let repoDisposables: vscode.Disposable[] = [];
+
+    function disposeRepoScoped(): void {
+        for (const d of repoDisposables.splice(0)) {
+            try { d.dispose(); } catch (err) { logError(`Dispose failed: ${err}`); }
+        }
+        repo = undefined;
+    }
+
     async function initRestClient(): Promise<void> {
         const cfg = vscode.workspace.getConfiguration('tfvc');
-        const pat = await context.secrets.get('tfvc.pat') || cfg.get<string>('pat', '');
+        const pat = await context.secrets.get('tfvc.pat') || '';
         const org = cfg.get<string>('adoOrg', '');
         const project = cfg.get<string>('adoProject', '');
         const baseUrl = cfg.get<string>('adoBaseUrl', '');
         const collectionPath = cfg.get<string>('adoCollectionPath', '');
 
+        // Tear down existing repo-scoped resources so the new client/scope
+        // doesn't race with the old one. Review-tree dependencies are swapped
+        // in place below.
+        disposeRepoScoped();
+
         if (!pat || !project || (!org && !baseUrl)) {
             restClient = undefined;
             soapClient = undefined;
+            reviewTree.setRestClient(undefined);
+            reviewContent.setRestClient(undefined);
+            reviewComments.setSoapClient(undefined);
             return;
         }
 
@@ -81,50 +146,44 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
         const soapBase = baseUrl
             ? `${baseUrl.replace(/\/+$/, '')}${collectionPath}`
-            : `https://dev.azure.com/${org}`;
+            : `https://dev.azure.com/${encodeURIComponent(org)}`;
         soapClient = new AdoSoapClient(soapBase, pat);
         reviewComments.setSoapClient(soapClient);
 
         outputChannel.appendLine(`ADO REST client initialized for ${baseUrl || `dev.azure.com/${org}`}/${project}`);
 
-        // Create workspace state + repository if not already done
-        if (!repo && restClient) {
-            const scope = restClient.scope;
-            const state = new WorkspaceState(root!, scope, logError);
-            repo = new TfvcRepository(state, restClient);
+        // Build the scoped repository and its dependents fresh each time.
+        const scope = restClient.scope;
+        const state = new WorkspaceState(root!, scope, logError);
+        repo = new TfvcRepository(state, restClient);
 
-            const provider = new TfvcSCMProvider(repo, context, root!);
-            const decorations = new TfvcDecorationProvider(repo);
-            const quickDiff = new TfvcQuickDiffProvider(repo);
-            const autoCheckout = new AutoCheckoutHandler(repo, root!);
-            disposables.push(repo, provider, decorations, quickDiff, autoCheckout);
+        const provider = new TfvcSCMProvider(repo, context, root!);
+        const decorations = new TfvcDecorationProvider(repo);
+        const quickDiff = new TfvcQuickDiffProvider(repo);
+        const autoCheckout = new AutoCheckoutHandler(repo, root!);
+        repoDisposables.push(repo, provider, decorations, quickDiff, autoCheckout);
 
-            // File watcher for .vscode-tfvc/ metadata changes
-            const stateWatcher = vscode.workspace.createFileSystemWatcher(
-                new vscode.RelativePattern(root!, `${STATE_DIR}/**`)
-            );
-            stateWatcher.onDidChange(() => repo!.debouncedRefresh());
-            stateWatcher.onDidCreate(() => repo!.debouncedRefresh());
-            stateWatcher.onDidDelete(() => repo!.debouncedRefresh());
-            disposables.push(stateWatcher);
+        // File watcher for .vscode-tfvc/ metadata changes
+        const stateWatcher = vscode.workspace.createFileSystemWatcher(
+            new vscode.RelativePattern(root!, `${STATE_DIR}/**`)
+        );
+        stateWatcher.onDidChange(() => repo!.debouncedRefresh());
+        stateWatcher.onDidCreate(() => repo!.debouncedRefresh());
+        stateWatcher.onDidDelete(() => repo!.debouncedRefresh());
+        repoDisposables.push(stateWatcher);
 
-            // File watcher for workspace files — instant edit detection
-            const fileWatcher = vscode.workspace.createFileSystemWatcher(
-                new vscode.RelativePattern(root!, '**/*')
-            );
-            const ignoreChange = (uri: vscode.Uri) => {
-                const rel = path.relative(root!, uri.fsPath);
-                return rel.startsWith(STATE_DIR) || rel.startsWith('.git') || rel.startsWith('node_modules');
-            };
-            fileWatcher.onDidChange(uri => { if (!ignoreChange(uri)) { repo!.debouncedRefresh(500); } });
-            fileWatcher.onDidCreate(uri => { if (!ignoreChange(uri)) { repo!.debouncedRefresh(500); } });
-            fileWatcher.onDidDelete(uri => { if (!ignoreChange(uri)) { repo!.debouncedRefresh(500); } });
-            disposables.push(fileWatcher);
+        // File watcher for workspace files — instant edit detection
+        const fileWatcher = vscode.workspace.createFileSystemWatcher(
+            new vscode.RelativePattern(root!, '**/*')
+        );
+        fileWatcher.onDidChange(uri => { if (!isIgnoredPath(uri.fsPath, root!)) { repo!.debouncedRefresh(500); } });
+        fileWatcher.onDidCreate(uri => { if (!isIgnoredPath(uri.fsPath, root!)) { repo!.debouncedRefresh(500); } });
+        fileWatcher.onDidDelete(uri => { if (!isIgnoredPath(uri.fsPath, root!)) { repo!.debouncedRefresh(500); } });
+        repoDisposables.push(fileWatcher);
 
-            // Auto-refresh interval
-            const refreshInterval = cfg.get<number>('autoRefreshInterval', 0);
-            repo.startAutoRefresh(refreshInterval);
-        }
+        // Auto-refresh interval
+        const refreshInterval = cfg.get<number>('autoRefreshInterval', 0);
+        repo.startAutoRefresh(refreshInterval);
     }
 
     await initRestClient();
@@ -138,7 +197,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 e.affectsConfiguration('tfvc.adoBaseUrl') ||
                 e.affectsConfiguration('tfvc.adoCollectionPath')
             ) {
-                initRestClient();
+                initRestClient().catch(err => logError(`Config-change re-init failed: ${err}`));
             }
             if (e.affectsConfiguration('tfvc.autoRefreshInterval') && repo) {
                 const interval = vscode.workspace.getConfiguration('tfvc').get<number>('autoRefreshInterval', 0);
@@ -147,30 +206,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }),
         context.secrets.onDidChange(e => {
             if (e.key === 'tfvc.pat') {
-                initRestClient();
+                initRestClient().catch(err => logError(`PAT-change re-init failed: ${err}`));
             }
         })
-    );
-
-    // ── PAT management command ───────────────────────────────────────
-
-    disposables.push(
-        vscode.commands.registerCommand('tfvc.setPat', async () => {
-            const pat = await vscode.window.showInputBox({
-                prompt: 'Azure DevOps Personal Access Token',
-                password: true,
-                placeHolder: 'Paste your PAT here',
-            });
-            if (pat === undefined) { return; }
-            if (pat === '') {
-                await context.secrets.delete('tfvc.pat');
-                vscode.window.showInformationMessage('TFVC: PAT removed from secure storage.');
-            } else {
-                await context.secrets.store('tfvc.pat', pat);
-                vscode.window.showInformationMessage('TFVC: PAT stored securely.');
-            }
-            await initRestClient();
-        }),
     );
 
     // ── Initialize workspace command ─────────────────────────────────
@@ -278,16 +316,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             }
         }),
 
-        vscode.commands.registerCommand('tfvc.postComment', async () => {
-            if (!restClient || !soapClient) {
-                vscode.window.showErrorMessage('TFVC: Run "TFVC: Set PAT" and configure tfvc.adoOrg to post comments.');
-                return;
-            }
-            vscode.window.showInformationMessage('TFVC: Use the Comments API in a review diff to post inline comments.');
-        }),
     );
 
     disposables.push(outputChannel);
+
+    // Also make repo-scoped disposables disposable at deactivation, not only
+    // when the config changes.
+    disposables.push({ dispose: disposeRepoScoped });
 
     // Store disposables in context (single ownership — deactivate() is a no-op)
     context.subscriptions.push(...disposables);
@@ -306,21 +341,23 @@ export function deactivate(): void {
     disposables = [];
 }
 
-/** Find workspace root by looking for .vscode-tfvc/ directory. */
-function findWorkspaceRoot(): string | undefined {
-    const folders = vscode.workspace.workspaceFolders;
-    if (!folders) { return undefined; }
 
+/** Return every workspace folder that contains a .vscode-tfvc/ directory. */
+function findTfvcRoots(): string[] {
+    const folders = vscode.workspace.workspaceFolders;
+    if (!folders) { return []; }
+
+    const roots: string[] = [];
     for (const folder of folders) {
         const stateDir = vscode.Uri.joinPath(folder.uri, STATE_DIR);
         try {
             if (fs.existsSync(stateDir.fsPath)) {
-                return folder.uri.fsPath;
+                roots.push(folder.uri.fsPath);
             }
         } catch {
             // Continue
         }
     }
 
-    return undefined;
+    return roots;
 }

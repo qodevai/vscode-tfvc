@@ -3,6 +3,14 @@
 import * as https from 'https';
 import * as http from 'http';
 
+/**
+ * Build the Basic auth header ADO expects for PAT authentication:
+ * empty username + PAT as password, base64-encoded.
+ */
+export function buildBasicAuthHeader(pat: string): string {
+    return 'Basic ' + Buffer.from(`:${pat}`).toString('base64');
+}
+
 export interface HttpResponse {
     status: number;
     body: string;
