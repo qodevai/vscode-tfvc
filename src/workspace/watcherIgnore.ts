@@ -37,6 +37,6 @@ const IGNORED_WATCHER_PREFIXES = new Set([
 export function isIgnoredPath(fsPath: string, root: string): boolean {
     const rel = path.relative(root, fsPath);
     if (!rel || rel.startsWith('..')) { return true; }
-    const firstSegment = rel.split(path.sep)[0];
+    const firstSegment = rel.split(path.sep)[0].toLowerCase();
     return IGNORED_WATCHER_PREFIXES.has(firstSegment);
 }
