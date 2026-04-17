@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { TfvcRepository } from './tfvcRepository';
 import { logError } from './outputChannel';
@@ -70,8 +71,9 @@ export class AutoCheckoutHandler implements vscode.Disposable {
 
         const fsPath = uri.fsPath;
 
-        // Must be within workspace
-        if (!fsPath.startsWith(this.workspaceRoot)) { return; }
+        // Must be within workspace (case-insensitive for macOS/Windows)
+        const rel = path.relative(this.workspaceRoot, fsPath);
+        if (!rel || rel.startsWith('..')) { return; }
 
         // Avoid duplicate concurrent checkouts for the same file
         if (this.pendingCheckouts.has(fsPath)) { return; }
