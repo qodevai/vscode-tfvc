@@ -420,7 +420,7 @@ export class WorkspaceState {
         const serverPathSet = new Set(localPaths.map(p => {
             try { return pathKey(localToServer(p, this.scope, this.root)); }
             catch { return ''; }
-        }));
+        }).filter(Boolean));
 
         this.pending.adds = this.pending.adds.filter(p => !pathSet.has(pathKey(p)));
         this.pending.deletes = this.pending.deletes.filter(p => !serverPathSet.has(pathKey(p)));
@@ -482,7 +482,7 @@ export class WorkspaceState {
         const serverPathSet = new Set(localPaths.map(p => {
             try { return pathKey(localToServer(p, this.scope, this.root)); }
             catch { return ''; }
-        }));
+        }).filter(Boolean));
 
         // Undo edits/checkouts: re-download server version
         for (const item of this.baseline.items) {
