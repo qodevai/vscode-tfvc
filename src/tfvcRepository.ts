@@ -227,12 +227,13 @@ export class TfvcRepository implements vscode.Disposable {
      * teammates and across machines; the local fallback is not.
      */
     async shelve(name: string, comment?: string): Promise<{ location: 'server' | 'local'; error?: unknown }> {
+        const changes = await this.state.getPendingChanges();
+        if (changes.length === 0) {
+            throw new TfvcError('No changes to shelve.');
+        }
+
         // Try REST-based shelving first, fall back to local
         try {
-            const changes = await this.state.getPendingChanges();
-            if (changes.length === 0) {
-                throw new TfvcError('No changes to shelve.');
-            }
 
             const apiChanges = await Promise.all(changes.map(async c => {
                 const payload: any = {
