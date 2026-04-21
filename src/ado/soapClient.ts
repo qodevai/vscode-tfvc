@@ -5,12 +5,11 @@
  * only SOAP via DiscussionWebService.asmx.
  */
 
-import { httpRequest, buildBasicAuthHeader } from './httpClient';
+import { SoapClientBase } from './soapClientBase';
 import { extractAttr, decodeXmlEntities, escapeXmlAttr } from '../xmlUtils';
-import { classifyHttpError } from '../errors';
 
-const NS_SOAP = 'http://schemas.xmlsoap.org/soap/envelope/';
 const NS_DISC = 'http://schemas.microsoft.com/TeamFoundation/2012/Discussion';
+const ENDPOINT = '/Discussion/V1.0/DiscussionWebService.asmx';
 
 export interface InlineCommentParams {
     witId: number;
@@ -47,13 +46,9 @@ export interface DiscussionComment {
     isDeleted: boolean;
 }
 
-export class AdoSoapClient {
-    private readonly base: string;
-    private readonly authHeader: string;
-
+export class AdoSoapClient extends SoapClientBase {
     constructor(base: string, pat: string) {
-        this.base = base;
-        this.authHeader = buildBasicAuthHeader(pat);
+        super(base, pat, ENDPOINT, NS_DISC);
     }
 
     async postInlineComment(params: InlineCommentParams): Promise<number> {
@@ -61,11 +56,7 @@ export class AdoSoapClient {
         const startCol = params.startColumn ?? 1;
         const endCol = params.endColumn ?? 120;
 
-        const xml = [
-            '<?xml version="1.0" encoding="utf-8"?>',
-            `<soap:Envelope xmlns:soap="${NS_SOAP}" xmlns:t="${NS_DISC}">`,
-            '<soap:Body>',
-            '<t:PublishDiscussions>',
+        const body = [
             '<t:discussions>',
             `<t:Discussion`,
             ` DiscussionId="0"`,
@@ -99,13 +90,9 @@ export class AdoSoapClient {
             ` PublishedDate="${now}"`,
             ` IsDeleted="false" />`,
             '</t:comments>',
-            '</t:PublishDiscussions>',
-            '</soap:Body>',
-            '</soap:Envelope>',
         ].join('\n');
 
-        const url = `${this.base}/Discussion/V1.0/DiscussionWebService.asmx`;
-        const response = await this.postSoap(url, xml, `${NS_DISC}/PublishDiscussions`);
+        const response = await this.post(this.envelope('PublishDiscussions', body), 'PublishDiscussions');
 
         const intMatch = /<int[^>]*>(\d+)<\/int>/i.exec(response);
         if (!intMatch) {
@@ -115,38 +102,12 @@ export class AdoSoapClient {
     }
 
     async queryDiscussions(workItemId: number): Promise<DiscussionThread[]> {
-        const xml = [
-            '<?xml version="1.0" encoding="utf-8"?>',
-            `<soap:Envelope xmlns:soap="${NS_SOAP}" xmlns:t="${NS_DISC}">`,
-            '<soap:Body>',
-            '<t:QueryDiscussionsByCodeReviewRequest>',
-            `<t:workItemId>${workItemId}</t:workItemId>`,
-            '</t:QueryDiscussionsByCodeReviewRequest>',
-            '</soap:Body>',
-            '</soap:Envelope>',
-        ].join('\n');
-
-        const url = `${this.base}/Discussion/V1.0/DiscussionWebService.asmx`;
-        const response = await this.postSoap(url, xml, `${NS_DISC}/QueryDiscussionsByCodeReviewRequest`);
-
+        const body = `<t:workItemId>${workItemId}</t:workItemId>`;
+        const response = await this.post(
+            this.envelope('QueryDiscussionsByCodeReviewRequest', body),
+            'QueryDiscussionsByCodeReviewRequest',
+        );
         return parseDiscussionsResponse(response);
-    }
-
-    private async postSoap(url: string, xml: string, soapAction: string): Promise<string> {
-        const res = await httpRequest(url, {
-            method: 'POST',
-            headers: {
-                'Authorization': this.authHeader,
-                'Content-Type': 'text/xml; charset=utf-8',
-                'SOAPAction': soapAction,
-            },
-            body: xml,
-        });
-
-        if (res.status >= 400) {
-            throw classifyHttpError(res.status, res.body, 'SOAP error');
-        }
-        return res.body;
     }
 }
 

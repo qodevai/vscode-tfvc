@@ -14,12 +14,12 @@
  * cloud, resolves to `https://dev.azure.com/<org>` (no collection path).
  */
 
-import { httpRequest, buildBasicAuthHeader } from './httpClient';
-import { extractAttr, decodeXmlEntities, escapeXmlAttr } from '../xmlUtils';
-import { classifyHttpError, TfvcError } from '../errors';
+import { SoapClientBase } from './soapClientBase';
+import { extractAttr, escapeXmlAttr, decodeXmlEntities } from '../xmlUtils';
+import { TfvcError } from '../errors';
 
-const NS_SOAP = 'http://schemas.xmlsoap.org/soap/envelope/';
 const NS_TFVC = 'http://schemas.microsoft.com/TeamFoundation/2005/06/VersionControl/ClientServices/03';
+const ENDPOINT = '/VersionControl/v1.0/Repository.asmx';
 
 /** Matches _ChangeRequest and related enums in TEE. */
 export type PendChangeType = 'Add' | 'Edit' | 'Delete' | 'Rename';
@@ -68,18 +68,9 @@ export interface ShelveFailure {
     message?: string;
 }
 
-export class TfvcSoapClient {
-    private readonly base: string;
-    private readonly authHeader: string;
-
+export class TfvcSoapClient extends SoapClientBase {
     constructor(base: string, pat: string) {
-        this.base = base;
-        this.authHeader = buildBasicAuthHeader(pat);
-    }
-
-    /** Stable endpoint path for the TFVC repository SOAP service. */
-    private get endpoint(): string {
-        return `${this.base}/VersionControl/v1.0/Repository.asmx`;
+        super(base, pat, ENDPOINT, NS_TFVC);
     }
 
     // ── Workspace lifecycle ────────────────────────────────────────────
@@ -225,51 +216,6 @@ export class TfvcSoapClient {
     }
 
     // ── Internals ──────────────────────────────────────────────────────
-
-    private envelope(operation: string, body: string): string {
-        return [
-            '<?xml version="1.0" encoding="utf-8"?>',
-            `<soap:Envelope xmlns:soap="${NS_SOAP}" xmlns:t="${NS_TFVC}">`,
-            '<soap:Body>',
-            `<t:${operation}>`,
-            body,
-            `</t:${operation}>`,
-            '</soap:Body>',
-            '</soap:Envelope>',
-        ].join('');
-    }
-
-    private async post(xml: string, operation: string): Promise<string> {
-        const res = await httpRequest(this.endpoint, {
-            method: 'POST',
-            headers: {
-                'Authorization': this.authHeader,
-                'Content-Type': 'text/xml; charset=utf-8',
-                // SOAP 1.1 requires the action as a separate header.
-                'SOAPAction': `"${NS_TFVC}/${operation}"`,
-            },
-            body: xml,
-        });
-        if (res.status >= 400) {
-            // Try to pull the fault string so the caller gets a useful error.
-            const fault = /<faultstring>([\s\S]*?)<\/faultstring>/i.exec(res.body);
-            const detail = fault ? decodeXmlEntities(fault[1]) : res.body.slice(0, 500);
-            // For SOAP calls the server's faultstring is the diagnostic
-            // signal — classifyHttpError's user-friendly "server error (500)"
-            // hides it. Keep status + prefix but fold the detail into the
-            // message so stack traces and test output show what went wrong.
-            const err = classifyHttpError(res.status, detail, `TFVC SOAP ${operation} failed`);
-            if (detail && !err.message.includes(detail)) {
-                throw new TfvcError(
-                    `${err.message} (${operation}: ${detail})`,
-                    err.statusCode,
-                    detail,
-                );
-            }
-            throw err;
-        }
-        return res.body;
-    }
 
     private workspaceElement(ws: WorkspaceInfo, elementName = 'Workspace'): string {
         return [
