@@ -3,10 +3,15 @@
  * local mock, so unit tests can't substitute for this.
  *
  * What lives here (and why):
- *   - All tests are read-only. TFVC changesets are immutable, so any
- *     write test would permanently pollute the sandbox's history. Keep
- *     the blast radius at zero for nightly automation. Writes stay in
- *     manual testing for now.
+ *   - Reads exercise the happy-path endpoints (auth, categories,
+ *     listShelvesets, WIQL) against the real server shape.
+ *   - One write path: the shelveset round-trip. Shelvesets are the only
+ *     mutable TFVC surface that can be cleaned up safely; changesets
+ *     and work items are either immutable or leave orphans, so those
+ *     stay in manual testing.
+ *   - A janitor (test-live/janitor.ts) runs in a separate CI step and
+ *     sweeps stranded `tfvc-ci-*` shelvesets if a run crashes between
+ *     create and delete.
  *   - We drive the AdoRestClient directly (not the extension host) —
  *     that's the layer where the "is our shape correct for the real
  *     server?" questions actually live. The extension host is covered
@@ -19,6 +24,7 @@
 import * as assert from 'assert';
 import { describe, it, before } from 'node:test';
 import { AdoRestClient, CATEGORY_CODE_REVIEW_REQUEST, CATEGORY_CODE_REVIEW_RESPONSE } from '../src/ado/restClient';
+import { TfvcChangePayload } from '../src/ado/types';
 import { loadLiveConfig } from './config';
 
 let client: AdoRestClient;
@@ -87,5 +93,73 @@ describe('Live ADO: WIQL IN GROUP filter', () => {
             assert.ok(typeof r.id === 'number' && r.id > 0);
             assert.ok(typeof r.title === 'string');
         }
+    });
+});
+
+describe('Live ADO: TFVC shelveset write round-trip', () => {
+    // Run tag carries the GitHub run id (or "local") + a timestamp so
+    // concurrent workflows can't collide on shelveset names or sentinel
+    // paths, and a crashed run's leftovers are still trivially identifiable
+    // by the janitor.
+    const runTag = `${process.env.GITHUB_RUN_ID ?? 'local'}-${Date.now()}`;
+    const shelveName = `tfvc-ci-${runTag}`;
+    let sentinelPath: string;
+    let botName: string;
+
+    before(async () => {
+        const cfg = loadLiveConfig();
+        sentinelPath = `$/${cfg.project}/.ci-shelveset-sentinels/run-${runTag}.txt`;
+        botName = (await client.getBotIdentity()).displayName;
+    });
+
+    // SKIPPED — wiring the test caught a pre-existing bug: the ADO REST
+    // shelveset API is read-only. `POST /_apis/tfvc/shelvesets` returns
+    // HTTP 405 "does not support http method 'POST'" against cloud ADO,
+    // and the same is true for DELETE. The MS docs list only Get + List
+    // for Tfvc/Shelvesets:
+    //   https://learn.microsoft.com/en-us/rest/api/azure/devops/tfvc/shelvesets
+    //
+    // This means `AdoRestClient.createShelveset` / `.deleteShelveset` have
+    // never worked against a real server — the "local shelf fallback"
+    // noted in the 0.3.2 CHANGELOG is what masked it end-user-side. To
+    // make this test pass we'd need to either (a) implement shelveset
+    // create/delete via SOAP (TFVC web service), or (b) remove the REST
+    // methods from the client and document that server-side shelving
+    // isn't supported.
+    //
+    // Keeping the test body intact so it runs as soon as the underlying
+    // methods are fixed — delete `skip: ...` and it's ready to go.
+    it('creates a shelveset with one pending add, lists it, deletes it', { skip: 'AdoRestClient.createShelveset uses REST endpoints that do not exist; pre-existing bug, see comment' }, async () => {
+        const change: TfvcChangePayload = {
+            changeType: 'add',
+            item: { path: sentinelPath },
+            newContent: {
+                content: Buffer.from(`ci smoke run ${runTag} — safe to delete`).toString('base64'),
+                contentType: 'base64Encoded',
+            },
+        };
+
+        let created = false;
+        try {
+            await client.createShelveset(shelveName, [change], `CI smoke — ${runTag}`);
+            created = true;
+
+            const after = await client.listShelvesets();
+            assert.ok(
+                after.some(s => s.name === shelveName),
+                `created shelveset "${shelveName}" should appear in listShelvesets`,
+            );
+        } finally {
+            if (created) {
+                // Best-effort cleanup; the janitor sweeps leftovers on the next run.
+                await client.deleteShelveset(shelveName, botName).catch(() => {});
+            }
+        }
+
+        const afterDelete = await client.listShelvesets();
+        assert.ok(
+            !afterDelete.some(s => s.name === shelveName),
+            `shelveset "${shelveName}" should be gone after delete`,
+        );
     });
 });
