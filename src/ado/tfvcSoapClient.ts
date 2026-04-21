@@ -34,7 +34,7 @@ export interface PendChangeRequest {
     itemType: PendItemType;
     /** The download id returned by `upload.ashx`. 0 for Delete; the upload's `did` for Add/Edit. */
     downloadId: number;
-    /** Encoding flag — -2 for binary, a Windows code page for text. Use -2 unless the caller knows better. */
+    /** Encoding flag — -1 for binary, a Windows code page (e.g. 65001 for UTF-8) for text. Defaults to 65001. */
     encoding?: number;
     /** Rename target server path. Only for `Rename`. */
     target?: string;
@@ -289,7 +289,7 @@ export class TfvcSoapClient {
             '<t:ChangeRequest',
             ` req="${c.changeType}"`,
             ` did="${c.downloadId}"`,
-            ` enc="${c.encoding ?? -2}"`,
+            ` enc="${c.encoding ?? 65001}"`,
             ` type="${c.itemType}"`,
             ' lock="Unchanged"',
             c.target ? ` target="${escapeXmlAttr(c.target)}"` : '',
