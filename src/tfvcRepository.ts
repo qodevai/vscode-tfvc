@@ -1,6 +1,5 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import * as vscode from 'vscode';
 import { WorkspaceState } from './workspace/workspaceState';
 import { PendingChange, CheckinResult, SyncResult, HistoryEntry, ChangeType } from './workspace/types';
 import { localToServer, serverToLocal, pathKey, samePath } from './workspace/pathMapping';
@@ -15,9 +14,21 @@ import { logError } from './outputChannel';
 
 export { PendingChange, ChangeType } from './workspace/types';
 
-export class TfvcRepository implements vscode.Disposable {
-    private _onDidChange = new vscode.EventEmitter<void>();
-    readonly onDidChange = this._onDidChange.event;
+/**
+ * Minimal subset of `vscode.EventEmitter<T>` that this class needs — kept
+ * as a local interface so TfvcRepository doesn't take a runtime dependency
+ * on the `vscode` module. `vscode.EventEmitter` satisfies it structurally,
+ * so `extension.ts` can keep passing `new vscode.EventEmitter<void>()`.
+ * Tests inject a trivial stand-in.
+ */
+export interface ChangeEmitter {
+    readonly event: (listener: (e: void) => void) => { dispose(): void };
+    fire(data: void): void;
+    dispose(): void;
+}
+
+export class TfvcRepository {
+    readonly onDidChange: ChangeEmitter['event'];
 
     private _pendingChanges: PendingChange[] = [];
     private _excludedPaths = new Set<string>();
@@ -32,7 +43,10 @@ export class TfvcRepository implements vscode.Disposable {
         private soapClient: TfvcSoapClient,
         private uploadClient: TfvcUploadClient,
         private serverWorkspace: ServerWorkspace,
-    ) {}
+        private _onDidChange: ChangeEmitter,
+    ) {
+        this.onDidChange = _onDidChange.event;
+    }
 
     get pendingChanges(): PendingChange[] {
         return this._pendingChanges;
