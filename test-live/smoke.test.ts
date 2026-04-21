@@ -141,6 +141,11 @@ describe('Live ADO: TFVC shelveset write round-trip (SOAP)', () => {
     it('creates workspace, shelves a pending add, deletes shelveset + workspace', async () => {
         const content = Buffer.from(`ci smoke run ${runTag} — safe to delete`, 'utf8');
 
+        // DEBUG: log the identity fields so we can see what the server
+        // gives us in CI. Remove once CreateWorkspace is working.
+        const id = await client.getBotIdentity();
+        console.log('DEBUG identity:', JSON.stringify(id));
+
         let createdWorkspace = false;
         let createdShelveset = false;
         try {
