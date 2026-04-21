@@ -252,9 +252,14 @@ export class TfvcRepository implements vscode.Disposable {
         // user retry or check permissions.
         const identity = await this.restClient.getBotIdentity();
         const workspace = await this.serverWorkspace.getOrCreate(this.soapClient, {
-            owner: identity.uniqueName,
+            // Cloud ADO's /_apis/connectionData doesn't populate uniqueName,
+            // but the authenticatedUser.id (GUID) is always present and the
+            // server resolves it to a canonical identity before echoing it
+            // back in the CreateWorkspace response. Subsequent calls use
+            // `workspace.owner` — the server's canonical form.
+            owner: identity.uniqueName || identity.id,
             ownerDisplayName: identity.displayName,
-            ownerUniqueName: identity.uniqueName,
+            ownerUniqueName: identity.uniqueName || identity.id,
         });
 
         const pendRequests: PendChangeRequest[] = [];
@@ -295,7 +300,7 @@ export class TfvcRepository implements vscode.Disposable {
                 serverItems,
                 {
                     name,
-                    owner: identity.uniqueName,
+                    owner: workspace.owner,
                     ownerDisplayName: identity.displayName,
                     comment,
                 },
@@ -392,7 +397,10 @@ export class TfvcRepository implements vscode.Disposable {
         // No fallback: if the server rejects, let the user know so they can
         // retry or check permissions.
         const identity = await this.restClient.getBotIdentity();
-        await this.soapClient.deleteShelveset(name, identity.uniqueName);
+        // Shelveset owner is stored server-side as the display name
+        // (matches what listShelvesets returns); uniqueName is empty on
+        // cloud ADO so fall back to displayName there.
+        await this.soapClient.deleteShelveset(name, identity.uniqueName || identity.displayName);
         return { location: 'server' };
     }
 

@@ -146,10 +146,10 @@ describe('Live ADO: TFVC shelveset write round-trip (SOAP)', () => {
         const id = await client.getBotIdentity();
         console.log('DEBUG identity:', JSON.stringify(id));
 
-        let createdWorkspace = false;
+        let createdWorkspace: { name: string; owner: string } | undefined;
         let createdShelveset = false;
         try {
-            await soap.createWorkspace({
+            const ws = await soap.createWorkspace({
                 name: workspaceName,
                 // On cloud ADO uniqueName is empty; the GUID from
                 // authenticatedUser.id is the unambiguous identity.
@@ -159,17 +159,22 @@ describe('Live ADO: TFVC shelveset write round-trip (SOAP)', () => {
                 computer: `ci-${os.hostname()}`,
                 comment: 'CI smoke — safe to delete',
             });
-            createdWorkspace = true;
+            // Use whatever owner the server canonicalised to — on cloud it
+            // echoes back a resolved identity that differs from what we sent
+            // (e.g. "alice@corp" instead of the GUID). Subsequent calls MUST
+            // use the canonical form or hit "Parameter name: wsowner" 500s.
+            createdWorkspace = { name: ws.name, owner: ws.owner };
+            console.log('DEBUG server workspace:', JSON.stringify(ws));
 
             const uploaded = await upload.uploadFile({
                 serverPath: sentinelPath,
-                workspaceName,
-                workspaceOwner: botUnique,
+                workspaceName: ws.name,
+                workspaceOwner: ws.owner,
                 content,
             });
             assert.ok(uploaded.hash.length > 0, 'upload response should carry a hash');
 
-            await soap.pendChanges(workspaceName, botUnique, [{
+            await soap.pendChanges(ws.name, ws.owner, [{
                 serverPath: sentinelPath,
                 changeType: 'Add',
                 itemType: 'File',
@@ -177,10 +182,10 @@ describe('Live ADO: TFVC shelveset write round-trip (SOAP)', () => {
             }]);
 
             const failures = await soap.shelve(
-                workspaceName,
-                botUnique,
+                ws.name,
+                ws.owner,
                 [sentinelPath],
-                { name: shelveName, owner: botUnique, ownerDisplayName: botName, comment: 'CI smoke' },
+                { name: shelveName, owner: ws.owner, ownerDisplayName: botName, comment: 'CI smoke' },
                 /* replace */ true,
             );
             assert.deepStrictEqual(
@@ -190,7 +195,7 @@ describe('Live ADO: TFVC shelveset write round-trip (SOAP)', () => {
             );
             createdShelveset = true;
 
-            await soap.undoPendingChanges(workspaceName, botUnique, [sentinelPath]);
+            await soap.undoPendingChanges(ws.name, ws.owner, [sentinelPath]);
 
             const listed = await client.listShelvesets(botName);
             assert.ok(
@@ -198,11 +203,11 @@ describe('Live ADO: TFVC shelveset write round-trip (SOAP)', () => {
                 `shelveset "${shelveName}" should appear in listShelvesets after Shelve`,
             );
         } finally {
-            if (createdShelveset) {
-                await soap.deleteShelveset(shelveName, botUnique).catch(() => {});
+            if (createdShelveset && createdWorkspace) {
+                await soap.deleteShelveset(shelveName, createdWorkspace.owner).catch(() => {});
             }
             if (createdWorkspace) {
-                await soap.deleteWorkspace(workspaceName, botUnique).catch(() => {});
+                await soap.deleteWorkspace(createdWorkspace.name, createdWorkspace.owner).catch(() => {});
             }
         }
 
