@@ -42,8 +42,17 @@ export interface PendChangeRequest {
 
 export interface WorkspaceInfo {
     name: string;
+    /**
+     * Primary owner identifier. On cloud ADO this is the user's unique name
+     * (e.g. `user@tenant.com`); the server validates it against the PAT's
+     * identity and rejects the workspace with "OwnerName null" if it can't
+     * resolve. Use `getBotIdentity().uniqueName` when constructing.
+     */
     owner: string;
+    /** Display name shown in TFS UI. */
     ownerDisplayName: string;
+    /** Explicit unique-name hint ("owneruniq" attribute). Optional on on-prem servers that derive it from `owner`. */
+    ownerUniqueName?: string;
     computer: string;
     comment?: string;
 }
@@ -269,6 +278,7 @@ export class TfvcSoapClient {
             ` name="${escapeXmlAttr(ws.name)}"`,
             ` owner="${escapeXmlAttr(ws.owner)}"`,
             ` ownerdisp="${escapeXmlAttr(ws.ownerDisplayName)}"`,
+            ws.ownerUniqueName ? ` owneruniq="${escapeXmlAttr(ws.ownerUniqueName)}"` : '',
             ` computer="${escapeXmlAttr(ws.computer)}"`,
             ws.comment ? ` comment="${escapeXmlAttr(ws.comment)}"` : '',
             ' islocal="false"/>',
@@ -296,6 +306,7 @@ export class TfvcSoapClient {
             name: extractAttr(attrs, 'name') || '',
             owner: extractAttr(attrs, 'owner') || '',
             ownerDisplayName: extractAttr(attrs, 'ownerdisp') || '',
+            ownerUniqueName: extractAttr(attrs, 'owneruniq'),
             computer: extractAttr(attrs, 'computer') || '',
             comment: extractAttr(attrs, 'comment'),
         };

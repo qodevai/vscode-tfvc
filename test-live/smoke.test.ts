@@ -120,10 +120,13 @@ describe('Live ADO: TFVC shelveset write round-trip (SOAP)', () => {
     const workspaceName = `tfvc-ci-ws-${runTag}`;
     let sentinelPath: string;
     let botName: string;
+    let botUnique: string;
 
     before(async () => {
         sentinelPath = `$/${cfg.project}/.ci-shelveset-sentinels/run-${runTag}.txt`;
-        botName = (await client.getBotIdentity()).displayName;
+        const identity = await client.getBotIdentity();
+        botName = identity.displayName;
+        botUnique = identity.uniqueName;
     });
 
     /**
@@ -143,8 +146,9 @@ describe('Live ADO: TFVC shelveset write round-trip (SOAP)', () => {
         try {
             await soap.createWorkspace({
                 name: workspaceName,
-                owner: botName,
+                owner: botUnique,
                 ownerDisplayName: botName,
+                ownerUniqueName: botUnique,
                 computer: `ci-${os.hostname()}`,
                 comment: 'CI smoke — safe to delete',
             });
@@ -153,12 +157,12 @@ describe('Live ADO: TFVC shelveset write round-trip (SOAP)', () => {
             const uploaded = await upload.uploadFile({
                 serverPath: sentinelPath,
                 workspaceName,
-                workspaceOwner: botName,
+                workspaceOwner: botUnique,
                 content,
             });
             assert.ok(uploaded.hash.length > 0, 'upload response should carry a hash');
 
-            await soap.pendChanges(workspaceName, botName, [{
+            await soap.pendChanges(workspaceName, botUnique, [{
                 serverPath: sentinelPath,
                 changeType: 'Add',
                 itemType: 'File',
@@ -167,9 +171,9 @@ describe('Live ADO: TFVC shelveset write round-trip (SOAP)', () => {
 
             const failures = await soap.shelve(
                 workspaceName,
-                botName,
+                botUnique,
                 [sentinelPath],
-                { name: shelveName, owner: botName, ownerDisplayName: botName, comment: 'CI smoke' },
+                { name: shelveName, owner: botUnique, ownerDisplayName: botName, comment: 'CI smoke' },
                 /* replace */ true,
             );
             assert.deepStrictEqual(
@@ -179,7 +183,7 @@ describe('Live ADO: TFVC shelveset write round-trip (SOAP)', () => {
             );
             createdShelveset = true;
 
-            await soap.undoPendingChanges(workspaceName, botName, [sentinelPath]);
+            await soap.undoPendingChanges(workspaceName, botUnique, [sentinelPath]);
 
             const listed = await client.listShelvesets(botName);
             assert.ok(
@@ -188,10 +192,10 @@ describe('Live ADO: TFVC shelveset write round-trip (SOAP)', () => {
             );
         } finally {
             if (createdShelveset) {
-                await soap.deleteShelveset(shelveName, botName).catch(() => {});
+                await soap.deleteShelveset(shelveName, botUnique).catch(() => {});
             }
             if (createdWorkspace) {
-                await soap.deleteWorkspace(workspaceName, botName).catch(() => {});
+                await soap.deleteWorkspace(workspaceName, botUnique).catch(() => {});
             }
         }
 

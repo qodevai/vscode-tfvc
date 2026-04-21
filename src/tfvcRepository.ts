@@ -252,8 +252,9 @@ export class TfvcRepository implements vscode.Disposable {
         // user retry or check permissions.
         const identity = await this.restClient.getBotIdentity();
         const workspace = await this.serverWorkspace.getOrCreate(this.soapClient, {
-            owner: identity.displayName,
+            owner: identity.uniqueName,
             ownerDisplayName: identity.displayName,
+            ownerUniqueName: identity.uniqueName,
         });
 
         const pendRequests: PendChangeRequest[] = [];
@@ -294,7 +295,7 @@ export class TfvcRepository implements vscode.Disposable {
                 serverItems,
                 {
                     name,
-                    owner: identity.displayName,
+                    owner: identity.uniqueName,
                     ownerDisplayName: identity.displayName,
                     comment,
                 },
@@ -391,7 +392,7 @@ export class TfvcRepository implements vscode.Disposable {
         // No fallback: if the server rejects, let the user know so they can
         // retry or check permissions.
         const identity = await this.restClient.getBotIdentity();
-        await this.soapClient.deleteShelveset(name, identity.displayName);
+        await this.soapClient.deleteShelveset(name, identity.uniqueName);
         return { location: 'server' };
     }
 
