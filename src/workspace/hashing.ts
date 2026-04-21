@@ -14,3 +14,12 @@ export function computeFileHash(filePath: string): Promise<string> {
         stream.on('error', reject);
     });
 }
+
+/**
+ * Compute a base64-encoded MD5 hash of an in-memory buffer. Matches the
+ * `hash` multipart field TFVC's upload.ashx endpoint expects — the server
+ * recomputes on receive and rejects mismatches.
+ */
+export function md5Base64(content: Buffer): string {
+    return crypto.createHash('md5').update(content).digest('base64');
+}
