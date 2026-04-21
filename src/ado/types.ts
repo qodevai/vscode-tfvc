@@ -148,3 +148,15 @@ export interface AdoWorkItemResponse {
     fields?: Record<string, unknown>;
     relations?: WorkItemRelation[];
 }
+
+export interface AdoWorkItemTypeRef {
+    name?: string;
+    url?: string;
+}
+
+export interface AdoWorkItemTypeCategory {
+    name?: string;
+    referenceName?: string;
+    defaultWorkItemType?: AdoWorkItemTypeRef;
+    workItemTypes?: AdoWorkItemTypeRef[];
+}

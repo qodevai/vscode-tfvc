@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4]
+
+### Fixed
+- Code review discovery on non-English ADO servers: WIQL now filters by `[System.WorkItemType] IN GROUP 'Microsoft.CodeReviewRequestCategory'` (a stable category reference name) instead of the English display name `'Code Review Request'`. On a German TFS the old query silently returned zero reviews.
+- Creating a verdict response on non-English ADO servers: the work-item-type for the response is resolved at runtime via `/_apis/wit/workitemtypecategories/Microsoft.CodeReviewResponseCategory` and URL-encoded into the create path, instead of the hardcoded `$Code%20Review%20Response`. The lookup is cached per session.
+- Collection-path URL construction: strip leading/trailing slashes from both `tfvc.adoBaseUrl` and `tfvc.adoCollectionPath` so `https://tfs.example.com` + `tfs/DefaultCollection` no longer produces `https://tfs.example.comtfs/DefaultCollection`. Applies to both the REST and SOAP client base URLs.
+
+### Added
+- `tfvc.reviewRequestOpenState` setting (default `"Requested"`) — the workflow state used to filter open reviews. State values are localized and not queryable by category, so non-English servers need to override (e.g. `"Angefordert"` on German TFS).
+- `tfvc.reviewResponseClosedState` setting (default `"Closed"`) — the workflow state the verdict flow transitions a response to (e.g. `"Geschlossen"` on German TFS).
+
 ## [0.3.3]
 
 ### Fixed

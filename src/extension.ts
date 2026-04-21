@@ -7,7 +7,7 @@ import { TfvcDecorationProvider } from './decorationProvider';
 import { TfvcQuickDiffProvider } from './quickDiffProvider';
 import { AutoCheckoutHandler } from './autoCheckout';
 import { WorkspaceState } from './workspace/workspaceState';
-import { AdoRestClient } from './ado/restClient';
+import { AdoRestClient, buildOnPremBase } from './ado/restClient';
 import { AdoSoapClient } from './ado/soapClient';
 import { ReviewTreeProvider, ReviewRequestItem, ReviewFileItem } from './providers/reviewTree';
 import { ReviewFileContentProvider, REVIEW_SCHEME } from './providers/fileContent';
@@ -80,7 +80,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         reviewContent.setRestClient(restClient);
 
         const soapBase = baseUrl
-            ? `${baseUrl.replace(/\/+$/, '')}${collectionPath}`
+            ? buildOnPremBase(baseUrl, collectionPath)
             : `https://dev.azure.com/${encodeURIComponent(org)}`;
         soapClient = new AdoSoapClient(soapBase, pat);
         reviewComments.setSoapClient(soapClient);
@@ -256,12 +256,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             try {
                 const identity = await restClient.getBotIdentity();
                 const title = `RE: ${review.title} — ${picked.label}`;
+                const closedState = vscode.workspace.getConfiguration('tfvc')
+                    .get<string>('reviewResponseClosedState', 'Closed');
                 await restClient.createCodeReviewResponse(
                     title,
                     review.id,
                     identity.displayName,
                     picked.verdict,
-                    summary || ''
+                    summary || '',
+                    closedState
                 );
                 vscode.window.showInformationMessage(`TFVC: Review verdict "${picked.label}" submitted for CR ${review.id}.`);
                 reviewTree.refresh();

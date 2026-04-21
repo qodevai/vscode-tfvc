@@ -2,7 +2,7 @@
   "name": "tfvc",
   "displayName": "TFVC",
   "description": "Team Foundation Version Control (TFVC) source control integration for VS Code",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "publisher": "qodev",
   "license": "MIT",
   "repository": {
@@ -333,6 +333,16 @@
           "default": 0,
           "minimum": 0,
           "description": "Auto-refresh interval in seconds. Set to 0 to disable."
+        },
+        "tfvc.reviewRequestOpenState": {
+          "type": "string",
+          "default": "Requested",
+          "description": "State value that identifies open code reviews. Localized on non-English ADO servers (e.g. 'Angefordert' on German TFS)."
+        },
+        "tfvc.reviewResponseClosedState": {
+          "type": "string",
+          "default": "Closed",
+          "description": "State value the verdict workflow transitions a Code Review Response to. Localized on non-English ADO servers (e.g. 'Geschlossen' on German TFS)."
         }
       }
     }

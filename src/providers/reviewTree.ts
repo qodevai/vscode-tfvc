@@ -86,7 +86,9 @@ export class ReviewTreeProvider implements vscode.TreeDataProvider<ReviewTreeIte
         if (!element) {
             // Root: list open code review requests
             try {
-                this.reviews = await this.restClient.queryOpenReviews();
+                const openState = vscode.workspace.getConfiguration('tfvc')
+                    .get<string>('reviewRequestOpenState', 'Requested');
+                this.reviews = await this.restClient.queryOpenReviews(openState);
             } catch (err) {
                 logError(`Failed to query code reviews: ${err}`);
                 this.reviews = [];

@@ -1,7 +1,8 @@
 import * as assert from 'assert';
 import * as http from 'http';
 import { describe, it, before, after } from 'node:test';
-import { AdoRestClient } from '../src/ado/restClient';
+import { AdoRestClient, buildOnPremBase } from '../src/ado/restClient';
+import { ReviewVerdict } from '../src/ado/types';
 import { TfvcError } from '../src/errors';
 
 interface CapturedRequest {
@@ -117,7 +118,147 @@ describe('AdoRestClient.fetchItemContent', () => {
     });
 });
 
+describe('buildOnPremBase (v0.3.4 collection-path normalization)', () => {
+    it('joins baseUrl and collectionPath with exactly one slash when user provides none', () => {
+        // Regression: used to produce `https://host.example.comtfs/Collection`
+        assert.strictEqual(
+            buildOnPremBase('https://tfs.example.com', 'tfs/DefaultCollection'),
+            'https://tfs.example.com/tfs/DefaultCollection'
+        );
+    });
+
+    it('joins correctly when user provides a leading slash on collectionPath', () => {
+        assert.strictEqual(
+            buildOnPremBase('https://tfs.example.com', '/tfs/DefaultCollection'),
+            'https://tfs.example.com/tfs/DefaultCollection'
+        );
+    });
+
+    it('strips trailing slashes from baseUrl and collectionPath', () => {
+        assert.strictEqual(
+            buildOnPremBase('https://tfs.example.com/', '/tfs/DefaultCollection/'),
+            'https://tfs.example.com/tfs/DefaultCollection'
+        );
+    });
+
+    it('collapses multiple leading/trailing slashes', () => {
+        assert.strictEqual(
+            buildOnPremBase('https://tfs.example.com///', '///tfs/DefaultCollection///'),
+            'https://tfs.example.com/tfs/DefaultCollection'
+        );
+    });
+
+    it('returns baseUrl unchanged when collectionPath is empty', () => {
+        assert.strictEqual(
+            buildOnPremBase('https://tfs.example.com', ''),
+            'https://tfs.example.com'
+        );
+    });
+});
+
+describe('AdoRestClient.getWorkItemTypeByCategory (v0.3.4 localization)', () => {
+    it('resolves a category reference name to the server-local display name', async () => {
+        captured = [];
+        responder = () => ({
+            body: JSON.stringify({
+                referenceName: 'Microsoft.CodeReviewResponseCategory',
+                defaultWorkItemType: { name: 'Codereviewantwort' },
+                workItemTypes: [{ name: 'Codereviewantwort' }],
+            }),
+        });
+        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '');
+        const name = await client.getWorkItemTypeByCategory('Microsoft.CodeReviewResponseCategory');
+        assert.strictEqual(name, 'Codereviewantwort');
+
+        const call = captured[0];
+        assert.strictEqual(call.method, 'GET');
+        assert.ok(
+            call.url.includes('/_apis/wit/workitemtypecategories/Microsoft.CodeReviewResponseCategory'),
+            `expected categories URL, got ${call.url}`
+        );
+    });
+
+    it('caches the lookup so repeated calls do not re-hit the server', async () => {
+        captured = [];
+        responder = () => ({
+            body: JSON.stringify({ defaultWorkItemType: { name: 'Code Review Response' } }),
+        });
+        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '');
+        await client.getWorkItemTypeByCategory('Microsoft.CodeReviewResponseCategory');
+        await client.getWorkItemTypeByCategory('Microsoft.CodeReviewResponseCategory');
+        assert.strictEqual(captured.length, 1, 'second call should be served from cache');
+    });
+
+    it('falls back to workItemTypes[0] when defaultWorkItemType is missing', async () => {
+        captured = [];
+        responder = () => ({
+            body: JSON.stringify({ workItemTypes: [{ name: 'FallbackType' }] }),
+        });
+        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '');
+        const name = await client.getWorkItemTypeByCategory('Microsoft.CodeReviewResponseCategory');
+        assert.strictEqual(name, 'FallbackType');
+    });
+
+    it('throws TfvcError when the category has no types (process template missing code review)', async () => {
+        captured = [];
+        responder = () => ({ body: JSON.stringify({ referenceName: 'Foo', workItemTypes: [] }) });
+        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '');
+        await assert.rejects(
+            () => client.getWorkItemTypeByCategory('Microsoft.CodeReviewResponseCategory'),
+            (err: Error) => err instanceof TfvcError && /process template/.test(err.message),
+        );
+    });
+});
+
 describe('AdoRestClient.queryOpenReviews', () => {
+    it('filters by IN GROUP category reference name (localization-neutral, v0.3.4)', async () => {
+        captured = [];
+        responder = () => ({ body: JSON.stringify({ workItems: [] }) });
+        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '');
+        await client.queryOpenReviews('Angefordert');
+
+        const wiqlCall = captured.find(c => c.method === 'POST');
+        assert.ok(wiqlCall, 'expected WIQL POST call');
+        const parsed = JSON.parse(wiqlCall!.body) as { query: string };
+        // Category reference names are always English and stable across locales.
+        assert.ok(
+            /IN GROUP\s+'Microsoft\.CodeReviewRequestCategory'/i.test(parsed.query),
+            `expected IN GROUP clause, got: ${parsed.query}`
+        );
+        // The caller-supplied localized state is used verbatim.
+        assert.ok(
+            parsed.query.includes("[System.State] = 'Angefordert'"),
+            `expected localized state filter, got: ${parsed.query}`
+        );
+        // No hardcoded English type name should leak through.
+        assert.ok(
+            !/'Code Review Request'/.test(parsed.query),
+            `query must not mention the English display name, got: ${parsed.query}`
+        );
+    });
+
+    it('defaults the state filter to "Requested" when no argument is supplied', async () => {
+        captured = [];
+        responder = () => ({ body: JSON.stringify({ workItems: [] }) });
+        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '');
+        await client.queryOpenReviews();
+
+        const wiqlCall = captured.find(c => c.method === 'POST');
+        const parsed = JSON.parse(wiqlCall!.body) as { query: string };
+        assert.ok(parsed.query.includes("[System.State] = 'Requested'"));
+    });
+
+    it('escapes single quotes in the state value to prevent WIQL injection', async () => {
+        captured = [];
+        responder = () => ({ body: JSON.stringify({ workItems: [] }) });
+        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '');
+        await client.queryOpenReviews("O'Reilly");
+
+        const wiqlCall = captured.find(c => c.method === 'POST');
+        const parsed = JSON.parse(wiqlCall!.body) as { query: string };
+        assert.ok(parsed.query.includes("[System.State] = 'O''Reilly'"));
+    });
+
     it('paginates the workitems fetch in batches of 200 (I6 regression)', async () => {
         captured = [];
         // 450 matching IDs — should split across 3 GET /_apis/wit/workitems calls.
@@ -154,5 +295,80 @@ describe('AdoRestClient.queryOpenReviews', () => {
             const batchSize = (call.query.get('ids') || '').split(',').length;
             assert.ok(batchSize <= 200, `batch of ${batchSize} exceeds 200`);
         }
+    });
+});
+
+describe('AdoRestClient.createCodeReviewResponse (v0.3.4 localization)', () => {
+    it('resolves the response type via category and URL-encodes it in the create path', async () => {
+        captured = [];
+        responder = (req, _body) => {
+            if (req.url?.includes('/workitemtypecategories/')) {
+                // Simulate German TFS — localized display name with an umlaut
+                // to verify URL encoding.
+                return {
+                    body: JSON.stringify({ defaultWorkItemType: { name: 'Codereviewäntwort' } }),
+                };
+            }
+            if (req.method === 'PATCH' && req.url?.includes('/$')) {
+                // Create returns the new work-item id
+                return { body: JSON.stringify({ id: 999 }) };
+            }
+            // Close PATCH on the created id
+            return { body: JSON.stringify({}) };
+        };
+
+        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '');
+        await client.createCodeReviewResponse(
+            'RE: foo — Looks Good',
+            42,
+            'Alice',
+            ReviewVerdict.LooksGood,
+            '',
+            'Geschlossen',
+        );
+
+        // Category lookup happened first
+        const categoryCall = captured.find(c => c.url.includes('/workitemtypecategories/'));
+        assert.ok(categoryCall, 'expected category lookup');
+
+        // Create URL uses the URL-encoded localized type name, not the English one
+        const createCall = captured.find(c => c.method === 'PATCH' && c.url.includes('/$'));
+        assert.ok(createCall, 'expected PATCH create call');
+        assert.ok(
+            createCall!.url.includes(`/$${encodeURIComponent('Codereviewäntwort')}`),
+            `expected encoded type name in URL, got: ${createCall!.url}`
+        );
+        assert.ok(
+            !createCall!.url.includes('Code%20Review%20Response'),
+            `must not fall back to the hardcoded English type, got: ${createCall!.url}`
+        );
+
+        // Close PATCH uses the caller-supplied closed state
+        const closeCall = captured.find(c => c.method === 'PATCH' && c.url.includes('/_apis/wit/workitems/999'));
+        assert.ok(closeCall, 'expected PATCH close call on id 999');
+        const closeOps = JSON.parse(closeCall!.body) as Array<{ path: string; value: unknown }>;
+        const stateOp = closeOps.find(op => op.path === '/fields/System.State');
+        assert.strictEqual(stateOp?.value, 'Geschlossen');
+    });
+
+    it('defaults closedState to "Closed" when no argument is supplied', async () => {
+        captured = [];
+        responder = (req, _body) => {
+            if (req.url?.includes('/workitemtypecategories/')) {
+                return { body: JSON.stringify({ defaultWorkItemType: { name: 'Code Review Response' } }) };
+            }
+            if (req.method === 'PATCH' && req.url?.includes('/$')) {
+                return { body: JSON.stringify({ id: 77 }) };
+            }
+            return { body: JSON.stringify({}) };
+        };
+
+        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '');
+        await client.createCodeReviewResponse('x', 1, 'Bob', ReviewVerdict.LooksGood);
+
+        const closeCall = captured.find(c => c.method === 'PATCH' && c.url.includes('/_apis/wit/workitems/77'));
+        const closeOps = JSON.parse(closeCall!.body) as Array<{ path: string; value: unknown }>;
+        const stateOp = closeOps.find(op => op.path === '/fields/System.State');
+        assert.strictEqual(stateOp?.value, 'Closed');
     });
 });
