@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3]
+
+### Fixed
+- Register all contributed commands (`tfvc.shelvesets`, `tfvc.checkin`, `tfvc.sync`, etc.) unconditionally at activation. Previously they reported `command not found` until a `.vscode-tfvc/` folder existed *and* `adoOrg`/`adoProject`/PAT were all set. When invoked without full configuration they now show a clear "not configured" message pointing the user at Set PAT, settings, and Initialize Workspace.
+- Extend `activationEvents` with `onCommand:` entries for every palette-visible `tfvc.*` command so running them triggers extension activation even without a `.vscode-tfvc/` folder.
+- Move config-change and PAT-change listeners above the workspace-detection early return so saving settings or setting a PAT can bring an inactive extension to life without a VS Code reload.
+
+### Changed
+- Command registration moved from `TfvcSCMProvider.registerCommands()` into `activate()` so all wiring lives in one place. SCM handler methods on `TfvcSCMProvider` are now public.
+
 ## [0.3.2]
 
 ### Added

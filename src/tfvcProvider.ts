@@ -1,8 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { TfvcRepository, PendingChange, ChangeType } from './tfvcRepository';
+import { TfvcRepository, PendingChange } from './tfvcRepository';
 import { samePath } from './workspace/pathMapping';
-import { TfvcError } from './errors';
 import { parseWorkItemIds } from './workItemParsing';
 
 const TFVC_SCHEME = 'tfvc';
@@ -37,58 +36,10 @@ export class TfvcSCMProvider implements vscode.Disposable {
             this.scm,
             this.repo.onDidChange(() => this.updateResourceGroups()),
         );
-
-        this.registerCommands();
     }
 
-    private registerCommands(): void {
-        const register = (id: string, handler: (...args: any[]) => Promise<void>) => {
-            this.disposables.push(
-                vscode.commands.registerCommand(id, async (...args: any[]) => {
-                    try {
-                        await handler(...args);
-                    } catch (err) {
-                        if (err instanceof TfvcError) {
-                            vscode.window.showErrorMessage(`TFVC: ${err.message}`);
-                        } else {
-                            vscode.window.showErrorMessage(`TFVC: ${err}`);
-                        }
-                    }
-                })
-            );
-        };
-
-        register('tfvc.refresh', () => this.repo.refresh());
-
-        register('tfvc.checkin', () => this.handleCheckin());
-
-        register('tfvc.sync', () => this.handleSync());
-
-        register('tfvc.checkout', (...args) => this.handleCheckout(args));
-
-        register('tfvc.undo', (...args) => this.handleUndo(args));
-
-        register('tfvc.undoAll', () => this.handleUndoAll());
-
-        register('tfvc.add', (...args) => this.handleAdd(args));
-
-        register('tfvc.delete', (...args) => this.handleDelete(args));
-
-        register('tfvc.include', (...args) => this.handleInclude(args));
-
-        register('tfvc.exclude', (...args) => this.handleExclude(args));
-
-        register('tfvc.openDiff', (...args) => this.handleOpenDiff(args));
-
-        register('tfvc.openFile', (...args) => this.handleOpenFile(args));
-
-        register('tfvc.shelve', () => this.handleShelve());
-
-        register('tfvc.unshelve', () => this.handleUnshelve());
-
-        register('tfvc.shelvesets', () => this.handleListShelvesets());
-
-        register('tfvc.history', () => this.handleHistory());
+    public handleRefresh(): Promise<void> {
+        return this.repo.refresh();
     }
 
     private updateResourceGroups(): void {
@@ -154,7 +105,7 @@ export class TfvcSCMProvider implements vscode.Disposable {
 
     // --- Command handlers ---
 
-    private async handleCheckin(): Promise<void> {
+    public async handleCheckin(): Promise<void> {
         const comment = this.scm.inputBox.value.trim();
         if (!comment) {
             vscode.window.showWarningMessage('TFVC: Please enter a checkin comment.');
@@ -179,7 +130,7 @@ export class TfvcSCMProvider implements vscode.Disposable {
         vscode.window.showInformationMessage(`TFVC: Changeset #${result.changeset} checked in.`);
     }
 
-    private async handleSync(): Promise<void> {
+    public async handleSync(): Promise<void> {
         await vscode.window.withProgress(
             { location: vscode.ProgressLocation.SourceControl, title: 'TFVC: Getting latest...' },
             async () => {
@@ -197,7 +148,7 @@ export class TfvcSCMProvider implements vscode.Disposable {
         );
     }
 
-    private async handleCheckout(args: any[]): Promise<void> {
+    public async handleCheckout(args: any[]): Promise<void> {
         const uris = this.resolveUris(args);
         if (uris.length === 0) {
             // Checkout active editor file
@@ -208,7 +159,7 @@ export class TfvcSCMProvider implements vscode.Disposable {
         await this.repo.checkout(uris.map(u => u.fsPath));
     }
 
-    private async handleUndo(args: any[]): Promise<void> {
+    public async handleUndo(args: any[]): Promise<void> {
         const uris = this.resolveUris(args);
         if (uris.length === 0) { return; }
 
@@ -222,7 +173,7 @@ export class TfvcSCMProvider implements vscode.Disposable {
         await this.repo.undo(uris.map(u => u.fsPath));
     }
 
-    private async handleUndoAll(): Promise<void> {
+    public async handleUndoAll(): Promise<void> {
         const count = this.repo.pendingChanges.length;
         if (count === 0) { return; }
 
@@ -236,13 +187,13 @@ export class TfvcSCMProvider implements vscode.Disposable {
         await this.repo.undoAll();
     }
 
-    private async handleAdd(args: any[]): Promise<void> {
+    public async handleAdd(args: any[]): Promise<void> {
         const uris = this.resolveUris(args);
         if (uris.length === 0) { return; }
         await this.repo.add(uris.map(u => u.fsPath));
     }
 
-    private async handleDelete(args: any[]): Promise<void> {
+    public async handleDelete(args: any[]): Promise<void> {
         const uris = this.resolveUris(args);
         if (uris.length === 0) { return; }
 
@@ -256,21 +207,21 @@ export class TfvcSCMProvider implements vscode.Disposable {
         await this.repo.delete(uris.map(u => u.fsPath));
     }
 
-    private async handleInclude(args: any[]): Promise<void> {
+    public async handleInclude(args: any[]): Promise<void> {
         const uris = this.resolveUris(args);
         for (const uri of uris) {
             this.repo.include(uri.fsPath);
         }
     }
 
-    private async handleExclude(args: any[]): Promise<void> {
+    public async handleExclude(args: any[]): Promise<void> {
         const uris = this.resolveUris(args);
         for (const uri of uris) {
             this.repo.exclude(uri.fsPath);
         }
     }
 
-    private async handleOpenDiff(args: any[]): Promise<void> {
+    public async handleOpenDiff(args: any[]): Promise<void> {
         const uris = this.resolveUris(args);
         if (uris.length === 0) { return; }
 
@@ -301,13 +252,13 @@ export class TfvcSCMProvider implements vscode.Disposable {
         );
     }
 
-    private async handleOpenFile(args: any[]): Promise<void> {
+    public async handleOpenFile(args: any[]): Promise<void> {
         const uris = this.resolveUris(args);
         if (uris.length === 0) { return; }
         await vscode.commands.executeCommand('vscode.open', uris[0]);
     }
 
-    private async handleShelve(): Promise<void> {
+    public async handleShelve(): Promise<void> {
         const name = await vscode.window.showInputBox({
             prompt: 'Shelveset name',
             placeHolder: 'my-changes',
@@ -323,7 +274,7 @@ export class TfvcSCMProvider implements vscode.Disposable {
         this.showShelveResult(result, 'Shelved', name);
     }
 
-    private async handleUnshelve(): Promise<void> {
+    public async handleUnshelve(): Promise<void> {
         const picked = await this.pickShelveset('Select shelveset to unshelve');
         if (!picked) { return; }
 
@@ -331,7 +282,7 @@ export class TfvcSCMProvider implements vscode.Disposable {
         this.showShelveResult(result, 'Unshelved', picked);
     }
 
-    private async handleListShelvesets(): Promise<void> {
+    public async handleListShelvesets(): Promise<void> {
         const picked = await this.pickShelveset('Shelvesets');
         if (!picked) { return; }
 
@@ -388,7 +339,7 @@ export class TfvcSCMProvider implements vscode.Disposable {
         return picked?.name;
     }
 
-    private async handleHistory(): Promise<void> {
+    public async handleHistory(): Promise<void> {
         const active = vscode.window.activeTextEditor?.document.uri;
         if (!active) {
             vscode.window.showWarningMessage('TFVC: Open a file to view its history.');

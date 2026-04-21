@@ -2,7 +2,7 @@
   "name": "tfvc",
   "displayName": "TFVC",
   "description": "Team Foundation Version Control (TFVC) source control integration for VS Code",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "publisher": "qodev",
   "license": "MIT",
   "repository": {
@@ -30,7 +30,21 @@
   "activationEvents": [
     "workspaceContains:**/.vscode-tfvc/**",
     "onCommand:tfvc.setPat",
-    "onCommand:tfvc.initWorkspace"
+    "onCommand:tfvc.initWorkspace",
+    "onCommand:tfvc.refresh",
+    "onCommand:tfvc.checkin",
+    "onCommand:tfvc.sync",
+    "onCommand:tfvc.checkout",
+    "onCommand:tfvc.undo",
+    "onCommand:tfvc.undoAll",
+    "onCommand:tfvc.add",
+    "onCommand:tfvc.delete",
+    "onCommand:tfvc.shelve",
+    "onCommand:tfvc.unshelve",
+    "onCommand:tfvc.shelvesets",
+    "onCommand:tfvc.history",
+    "onCommand:tfvc.refreshReviews",
+    "onCommand:tfvc.submitVerdict"
   ],
   "main": "./out/extension.js",
   "contributes": {
