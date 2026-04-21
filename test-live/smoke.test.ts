@@ -151,9 +151,11 @@ describe('Live ADO: TFVC shelveset write round-trip (SOAP)', () => {
         try {
             await soap.createWorkspace({
                 name: workspaceName,
-                owner: botUnique,
+                // On cloud ADO uniqueName is empty; the GUID from
+                // authenticatedUser.id is the unambiguous identity.
+                owner: id.id,
                 ownerDisplayName: botName,
-                ownerUniqueName: botUnique,
+                ownerUniqueName: botUnique || id.id,
                 computer: `ci-${os.hostname()}`,
                 comment: 'CI smoke — safe to delete',
             });
