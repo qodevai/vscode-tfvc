@@ -412,8 +412,11 @@ function findTfvcRoots(): string[] {
             if (fs.existsSync(stateDir.fsPath)) {
                 roots.push(folder.uri.fsPath);
             }
-        } catch {
-            // Continue
+        } catch (err) {
+            // Permission or symlink issues. Don't abort the scan — other
+            // folders may still succeed — but leave a trace so users can
+            // diagnose "TFVC didn't detect my workspace" without guessing.
+            logError(`findTfvcRoots: could not stat ${stateDir.fsPath}: ${err}`);
         }
     }
 
