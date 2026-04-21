@@ -334,49 +334,43 @@ export class TfvcRepository implements vscode.Disposable {
     }
 
     /**
-     * Unshelve by name. Returns whether the contents came from the server or
-     * the local fallback shelf.
+     * Unshelve by name. Downloads the shelved changes from the server and
+     * applies them locally. Throws on failure so the user sees the real
+     * error (auth, missing shelveset, connectivity) instead of a misleading
+     * "success" that silently applied a machine-local `.vscode-tfvc/shelves/`
+     * copy of something with the same name — different data, invisible to
+     * teammates.
      */
-    async unshelve(name: string): Promise<{ location: 'server' | 'local'; error?: unknown }> {
-        // Try REST unshelve first: download shelveset changes and apply
-        try {
-            const identity = await this.restClient.getBotIdentity();
-            const shelveChanges = await this.restClient.listShelvesetChanges(name, identity.displayName);
+    async unshelve(name: string): Promise<{ location: 'server' }> {
+        const identity = await this.restClient.getBotIdentity();
+        const shelveChanges = await this.restClient.listShelvesetChanges(name, identity.displayName);
 
-            for (const change of shelveChanges) {
-                const localPath = change.path.startsWith(this.state.getScope())
-                    ? serverToLocal(change.path, this.state.getScope(), this.state.getRoot())
-                    : change.path;
+        for (const change of shelveChanges) {
+            const localPath = change.path.startsWith(this.state.getScope())
+                ? serverToLocal(change.path, this.state.getScope(), this.state.getRoot())
+                : change.path;
 
-                const changeLabel = change.changeType.toLowerCase().split(/[,\s]+/)[0];
+            const changeLabel = change.changeType.toLowerCase().split(/[,\s]+/)[0];
 
-                if (changeLabel === 'delete') {
-                    this.state.markDelete([localPath]);
+            if (changeLabel === 'delete') {
+                this.state.markDelete([localPath]);
+            } else {
+                const content = await this.restClient.fetchShelvedContent(
+                    change.path, name, identity.displayName
+                );
+                fs.mkdirSync(path.dirname(localPath), { recursive: true });
+                try { fs.chmodSync(localPath, 0o644); } catch { /* may not exist */ }
+                fs.writeFileSync(localPath, content);
+
+                if (changeLabel === 'add') {
+                    this.state.markAdd([localPath]);
                 } else {
-                    // Download and apply the shelved content
-                    const content = await this.restClient.fetchShelvedContent(
-                        change.path, name, identity.displayName
-                    );
-                    fs.mkdirSync(path.dirname(localPath), { recursive: true });
-                    try { fs.chmodSync(localPath, 0o644); } catch { /* may not exist */ }
-                    fs.writeFileSync(localPath, content);
-
-                    if (changeLabel === 'add') {
-                        this.state.markAdd([localPath]);
-                    } else {
-                        this.state.markCheckout([localPath]);
-                    }
+                    this.state.markCheckout([localPath]);
                 }
             }
-            await this.refresh();
-            return { location: 'server' };
-        } catch (err) {
-            // Fall back to local shelf
-            logError(`Server unshelve failed, applying local shelf: ${err}`);
-            await this.state.applyLocalShelf(name);
-            await this.refresh();
-            return { location: 'local', error: err };
         }
+        await this.refresh();
+        return { location: 'server' };
     }
 
     async listShelvesets(owner?: string): Promise<Array<{ name: string; owner: string; date: string; comment: string }>> {

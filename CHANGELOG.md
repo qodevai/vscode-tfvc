@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `tfvc.unshelve` no longer silently substitutes a local `.vscode-tfvc/shelves/` copy when the server unshelve fails. The fallback was dangerous: a local shelf happens to share the name but holds unrelated data, so users would see "Unshelved" but get different content than what teammates reviewed. REST errors (auth, missing shelveset, network) now propagate to the standard error toast.
+
 ## [0.3.7]
 
 ### Fixed

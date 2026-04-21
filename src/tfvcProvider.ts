@@ -307,14 +307,8 @@ export class TfvcSCMProvider implements vscode.Disposable {
         }
     }
 
-    private showShelveResult(result: { location: 'server' | 'local' }, action: string, name: string): void {
-        if (result.location === 'server') {
-            vscode.window.showInformationMessage(`TFVC: ${action} "${name}" on the server.`);
-        } else {
-            vscode.window.showWarningMessage(
-                `TFVC: Server ${action.toLowerCase()} failed — see the TFVC output channel for details.`
-            );
-        }
+    private showShelveResult(_result: { location: 'server' }, action: string, name: string): void {
+        vscode.window.showInformationMessage(`TFVC: ${action} "${name}" on the server.`);
     }
 
     private async pickShelveset(placeHolder: string): Promise<string | undefined> {
