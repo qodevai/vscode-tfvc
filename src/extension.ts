@@ -1,4 +1,3 @@
-import * as fs from 'fs';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { TfvcRepository } from './tfvcRepository';
@@ -13,11 +12,11 @@ import { TfvcSoapClient } from './ado/tfvcSoapClient';
 import { TfvcUploadClient } from './ado/tfvcUploadClient';
 import { ServerWorkspace } from './workspace/serverWorkspace';
 import { getStrictSSL, setStrictSSL, setProxyUrl, resolveProxyUrl } from './ado/httpClient';
-import { ReviewTreeProvider, ReviewRequestItem, ReviewFileItem } from './providers/reviewTree';
-import { ReviewFileContentProvider, REVIEW_SCHEME } from './providers/fileContent';
-import { ReviewVerdict } from './ado/types';
+import { ReviewTreeProvider } from './providers/reviewTree';
+import { ReviewFileContentProvider } from './providers/fileContent';
 import { ReviewCommentController } from './providers/comments';
-import { normalizeChangeLabel } from './changeType';
+import { registerReviewCommands } from './reviewCommands';
+import { findTfvcRoots } from './workspaceDetect';
 import { getOutputChannel, logError } from './outputChannel';
 import { isIgnoredPath } from './workspace/watcherIgnore';
 import { TfvcError } from './errors';
@@ -238,82 +237,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.commands.registerCommand('tfvc.shelvesets', wrapSCM(p => p.handleListShelvesets())),
         vscode.commands.registerCommand('tfvc.history',    wrapSCM(p => p.handleHistory())),
 
-        vscode.commands.registerCommand('tfvc.refreshReviews', () => {
-            reviewContent.clearCache();
-            reviewTree.refresh();
-        }),
-
-        vscode.commands.registerCommand('tfvc.openReviewFileDiff', async (item: ReviewFileItem) => {
-            if (!item) { return; }
-            if (!restClient) { notConfigured(); return; }
-
-            const review = item.review;
-            const change = item.change;
-            const changeLabel = normalizeChangeLabel(change.changeType);
-            const fileName = path.basename(change.path);
-
-            const shelvedQuery = `shelveset=${encodeURIComponent(review.shelvesetName)}&owner=${encodeURIComponent(review.shelvesetOwner)}`;
-
-            if (changeLabel === 'add') {
-                const baseUri = vscode.Uri.parse(`${REVIEW_SCHEME}://base/${change.path}`);
-                const shelvedUri = vscode.Uri.parse(`${REVIEW_SCHEME}://shelved/${change.path}?${shelvedQuery}`);
-                await vscode.commands.executeCommand(
-                    'vscode.diff', baseUri, shelvedUri, `${fileName} (Added)`
-                );
-            } else if (changeLabel === 'delete') {
-                const baseUri = vscode.Uri.parse(`${REVIEW_SCHEME}://base/${change.path}`);
-                await vscode.commands.executeCommand('vscode.open', baseUri);
-            } else {
-                const baseUri = vscode.Uri.parse(`${REVIEW_SCHEME}://base/${change.path}`);
-                const shelvedUri = vscode.Uri.parse(`${REVIEW_SCHEME}://shelved/${change.path}?${shelvedQuery}`);
-                await vscode.commands.executeCommand(
-                    'vscode.diff', baseUri, shelvedUri, `${fileName} (Server ↔ Shelveset)`
-                );
-            }
-
-            await reviewComments.loadComments(review.id, shelvedQuery);
-        }),
-
-        vscode.commands.registerCommand('tfvc.submitVerdict', async (item: ReviewRequestItem) => {
-            if (!restClient) { notConfigured(); return; }
-
-            const review = item?.review;
-            if (!review) { return; }
-
-            const verdictItems = [
-                { label: 'Looks Good', verdict: ReviewVerdict.LooksGood },
-                { label: 'With Comments', verdict: ReviewVerdict.WithComments },
-                { label: 'Needs Work', verdict: ReviewVerdict.NeedsWork },
-                { label: 'Declined', verdict: ReviewVerdict.Declined },
-            ];
-
-            const picked = await vscode.window.showQuickPick(verdictItems, {
-                placeHolder: `Verdict for CR ${review.id}: ${review.title}`,
-            });
-            if (!picked) { return; }
-
-            const summary = await vscode.window.showInputBox({
-                prompt: 'Review summary (optional)',
-            });
-
-            try {
-                const identity = await restClient.getBotIdentity();
-                const title = `RE: ${review.title} — ${picked.label}`;
-                const closedState = vscode.workspace.getConfiguration('tfvc')
-                    .get<string>('reviewResponseClosedState', 'Closed');
-                await restClient.createCodeReviewResponse(
-                    title,
-                    review.id,
-                    identity.displayName,
-                    picked.verdict,
-                    summary || '',
-                    closedState
-                );
-                vscode.window.showInformationMessage(`TFVC: Review verdict "${picked.label}" submitted for CR ${review.id}.`);
-                reviewTree.refresh();
-            } catch (err) {
-                vscode.window.showErrorMessage(`TFVC: Failed to submit verdict: ${err}`);
-            }
+        ...registerReviewCommands({
+            getRestClient: () => restClient,
+            onNotConfigured: notConfigured,
+            reviewTree,
+            reviewContent,
+            reviewComments,
         }),
     );
 
@@ -418,28 +347,4 @@ export function deactivate(): void {
     // VS Code disposes context.subscriptions automatically.
     // Clear our reference to avoid double disposal.
     disposables = [];
-}
-
-
-/** Return every workspace folder that contains a .vscode-tfvc/ directory. */
-function findTfvcRoots(): string[] {
-    const folders = vscode.workspace.workspaceFolders;
-    if (!folders) { return []; }
-
-    const roots: string[] = [];
-    for (const folder of folders) {
-        const stateDir = vscode.Uri.joinPath(folder.uri, STATE_DIR);
-        try {
-            if (fs.existsSync(stateDir.fsPath)) {
-                roots.push(folder.uri.fsPath);
-            }
-        } catch (err) {
-            // Permission or symlink issues. Don't abort the scan — other
-            // folders may still succeed — but leave a trace so users can
-            // diagnose "TFVC didn't detect my workspace" without guessing.
-            logError(`findTfvcRoots: could not stat ${stateDir.fsPath}: ${err}`);
-        }
-    }
-
-    return roots;
 }
