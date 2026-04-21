@@ -374,23 +374,19 @@ export class TfvcRepository implements vscode.Disposable {
     }
 
     async listShelvesets(owner?: string): Promise<Array<{ name: string; owner: string; date: string; comment: string }>> {
-        try {
-            const shelvesets = await this.restClient.listShelvesets(owner);
-            return shelvesets.map(s => ({
-                name: s.name,
-                owner: s.owner,
-                date: s.createdDate,
-                comment: s.comment,
-            }));
-        } catch {
-            // Fall back to local shelves
-            return this.state.listLocalShelves().map(s => ({
-                name: s.name,
-                owner: '(local)',
-                date: s.date,
-                comment: s.comment,
-            }));
-        }
+        // REST errors (401, 403, 500, network) propagate to the caller so the
+        // user sees a real diagnostic toast. Previous versions swallowed
+        // everything and silently returned local `.vscode-tfvc/shelves/`
+        // entries, which look identical to server shelvesets in the picker
+        // but hold unrelated data — auth failures looked like "you have no
+        // shelvesets."
+        const shelvesets = await this.restClient.listShelvesets(owner);
+        return shelvesets.map(s => ({
+            name: s.name,
+            owner: s.owner,
+            date: s.createdDate,
+            comment: s.comment,
+        }));
     }
 
     async deleteShelve(name: string): Promise<{ location: 'server' }> {
