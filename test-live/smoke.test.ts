@@ -141,30 +141,24 @@ describe('Live ADO: TFVC shelveset write round-trip (SOAP)', () => {
     it('creates workspace, shelves a pending add, deletes shelveset + workspace', async () => {
         const content = Buffer.from(`ci smoke run ${runTag} — safe to delete`, 'utf8');
 
-        // DEBUG: log the identity fields so we can see what the server
-        // gives us in CI. Remove once CreateWorkspace is working.
-        const id = await client.getBotIdentity();
-        console.log('DEBUG identity:', JSON.stringify(id));
-
         let createdWorkspace: { name: string; owner: string } | undefined;
         let createdShelveset = false;
         try {
+            const identity = await client.getBotIdentity();
             const ws = await soap.createWorkspace({
                 name: workspaceName,
-                // On cloud ADO uniqueName is empty; the GUID from
-                // authenticatedUser.id is the unambiguous identity.
-                owner: id.id,
+                // On cloud ADO uniqueName is empty; the authenticatedUser.id
+                // GUID is the unambiguous identity. On-prem AD / TFS may
+                // return a DOMAIN\user uniqueName instead, which the server
+                // canonicalises on first use — we read `ws.owner` back rather
+                // than trusting our own input for subsequent calls.
+                owner: identity.uniqueName || identity.id,
                 ownerDisplayName: botName,
-                ownerUniqueName: botUnique || id.id,
+                ownerUniqueName: botUnique || identity.id,
                 computer: `ci-${os.hostname()}`,
                 comment: 'CI smoke — safe to delete',
             });
-            // Use whatever owner the server canonicalised to — on cloud it
-            // echoes back a resolved identity that differs from what we sent
-            // (e.g. "alice@corp" instead of the GUID). Subsequent calls MUST
-            // use the canonical form or hit "Parameter name: wsowner" 500s.
             createdWorkspace = { name: ws.name, owner: ws.owner };
-            console.log('DEBUG server workspace:', JSON.stringify(ws));
 
             // PendChanges BEFORE upload: the upload endpoint requires the
             // item to already be checked out (in the workspace's pending
