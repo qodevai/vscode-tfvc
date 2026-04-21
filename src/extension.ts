@@ -60,7 +60,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         scmProvider = undefined;
     }
 
-    async function initRestClient(): Promise<void> {
+    // Serialize init runs. Two settings changed in quick succession (or a
+    // setting + PAT change) would otherwise race: both enter `doInit`,
+    // both call `disposeRepoScoped()`, both create clients, and the second
+    // can leak the first one's repo into `repoDisposables`. Chaining on a
+    // shared promise makes reruns deterministic — each reads fresh config
+    // when its turn comes. A failure doesn't stop the chain; `.catch(() =>
+    // {})` lets the next call proceed, while callers still get their own
+    // rejection via the returned promise.
+    //
+    // Review providers (`reviewTree`, `reviewContent`, `reviewComments`)
+    // intentionally live across reinits: they preserve tree expansion
+    // state and the content cache through config changes. They get their
+    // client swapped via `.setRestClient` / `.setSoapClient` below, not
+    // recreated.
+    let initChain: Promise<void> = Promise.resolve();
+    function initRestClient(): Promise<void> {
+        const next = initChain.catch(() => { /* previous error already surfaced */ }).then(doInitRestClient);
+        initChain = next;
+        return next;
+    }
+
+    async function doInitRestClient(): Promise<void> {
         const cfg = vscode.workspace.getConfiguration('tfvc');
         const pat = await context.secrets.get('tfvc.pat') || '';
         const org = cfg.get<string>('adoOrg', '');
