@@ -1,9 +1,11 @@
 import * as vscode from 'vscode';
 import { TfvcRepository } from './tfvcRepository';
 import { samePath } from './workspace/pathMapping';
+import { TtlCache } from './ttlCache';
 import { logError } from './outputChannel';
 
 const TFVC_SCHEME = 'tfvc';
+const QUICKDIFF_CACHE_TTL_MS = 30_000;
 
 /**
  * Provides the original (server) version of files for VS Code's QuickDiff
@@ -16,8 +18,7 @@ export class TfvcQuickDiffProvider implements vscode.QuickDiffProvider, vscode.T
     private _onDidChange = new vscode.EventEmitter<vscode.Uri>();
     readonly onDidChange = this._onDidChange.event;
 
-    private contentCache = new Map<string, { content: string; timestamp: number }>();
-    private readonly CACHE_TTL_MS = 30_000;
+    private readonly contentCache = new TtlCache<string, string>(QUICKDIFF_CACHE_TTL_MS);
 
     private disposables: vscode.Disposable[] = [];
 
@@ -57,17 +58,14 @@ export class TfvcQuickDiffProvider implements vscode.QuickDiffProvider, vscode.T
     async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
         const serverPath = uri.path;
 
-        // Check cache
         const cached = this.contentCache.get(serverPath);
-        if (cached && (Date.now() - cached.timestamp) < this.CACHE_TTL_MS) {
-            return cached.content;
-        }
+        if (cached !== undefined) { return cached; }
 
         try {
             // Diff against the baseline version the user last synced, not HEAD —
             // otherwise newer server-side changes show up mixed with local edits.
             const content = await this.repo.getBaselineServerContent(serverPath);
-            this.contentCache.set(serverPath, { content, timestamp: Date.now() });
+            this.contentCache.set(serverPath, content);
             return content;
         } catch (err) {
             logError(`Failed to get server content for ${serverPath}: ${err}`);
