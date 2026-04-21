@@ -273,23 +273,11 @@ export class AdoRestClient {
         }));
     }
 
-    // ── Shelveset creation / deletion ─────────────────────────────────
-
-    /** Create a shelveset via REST. May not be available on all server versions. */
-    async createShelveset(name: string, changes: CreateChangesetRequest['changes'], comment?: string): Promise<void> {
-        const body = {
-            name,
-            comment: comment || '',
-            changes,
-        };
-        await this.post<unknown>('/_apis/tfvc/shelvesets', body);
-    }
-
-    /** Delete a shelveset. */
-    async deleteShelveset(name: string, owner: string): Promise<void> {
-        const shelveId = encodeURIComponent(`${name};${owner}`);
-        await this.del(`/_apis/tfvc/shelvesets/${shelveId}`);
-    }
+    // Shelveset create/delete intentionally NOT implemented here: ADO's
+    // REST API for Tfvc/Shelvesets is read-only (see
+    // https://learn.microsoft.com/en-us/rest/api/azure/devops/tfvc/shelvesets).
+    // Write paths live in `TfvcSoapClient` — the TFVC SOAP repository service
+    // is the only surface that supports Shelve / DeleteShelveset.
 
     // ── File content ────────────────────────────────────────────────────
 

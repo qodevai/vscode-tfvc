@@ -9,7 +9,10 @@ import { AutoCheckoutHandler } from './autoCheckout';
 import { WorkspaceState } from './workspace/workspaceState';
 import { AdoRestClient, buildOnPremBase } from './ado/restClient';
 import { AdoSoapClient } from './ado/soapClient';
-import { setStrictSSL, setProxyUrl, resolveProxyUrl } from './ado/httpClient';
+import { TfvcSoapClient } from './ado/tfvcSoapClient';
+import { TfvcUploadClient } from './ado/tfvcUploadClient';
+import { ServerWorkspace } from './workspace/serverWorkspace';
+import { getStrictSSL, setStrictSSL, setProxyUrl, resolveProxyUrl } from './ado/httpClient';
 import { ReviewTreeProvider, ReviewRequestItem, ReviewFileItem } from './providers/reviewTree';
 import { ReviewFileContentProvider, REVIEW_SCHEME } from './providers/fileContent';
 import { ReviewVerdict } from './ado/types';
@@ -89,6 +92,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         soapClient = new AdoSoapClient(soapBase, pat);
         reviewComments.setSoapClient(soapClient);
 
+        // TFVC SOAP + upload clients share the same collection base as the
+        // discussions SOAP client; they target different endpoints under it.
+        const tfvcSoap = new TfvcSoapClient(soapBase, pat);
+        const tfvcUpload = new TfvcUploadClient(soapBase, pat, () => getStrictSSL());
+
         outputChannel.appendLine(`ADO REST client initialized for ${baseUrl || `dev.azure.com/${org}`}/${project}`);
 
         if (!root) {
@@ -98,7 +106,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
         const scope = restClient.scope;
         const state = new WorkspaceState(root, scope, logError);
-        repo = new TfvcRepository(state, restClient);
+        const stateDir = path.join(root, STATE_DIR);
+        const serverWorkspace = new ServerWorkspace(root, stateDir);
+        repo = new TfvcRepository(state, restClient, tfvcSoap, tfvcUpload, serverWorkspace);
+
+        // Best-effort delete of the server-registered TFVC workspace when the
+        // extension deactivates or the config changes. The workspace is an
+        // implementation detail for shelving — the user never named it and
+        // shouldn't be left cleaning up after us.
+        repoDisposables.push({
+            dispose: () => { void serverWorkspace.tryDispose(tfvcSoap); },
+        });
 
         scmProvider = new TfvcSCMProvider(repo, context, root);
         const decorations = new TfvcDecorationProvider(repo);

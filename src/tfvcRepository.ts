@@ -5,6 +5,9 @@ import { WorkspaceState } from './workspace/workspaceState';
 import { PendingChange, CheckinResult, SyncResult, HistoryEntry, ChangeType } from './workspace/types';
 import { localToServer, serverToLocal, pathKey, samePath } from './workspace/pathMapping';
 import { AdoRestClient } from './ado/restClient';
+import { TfvcSoapClient, PendChangeRequest } from './ado/tfvcSoapClient';
+import { TfvcUploadClient } from './ado/tfvcUploadClient';
+import { ServerWorkspace } from './workspace/serverWorkspace';
 import { encodeFileContent } from './ado/encoding';
 import { ShelvesetInfo } from './ado/types';
 import { TfvcError } from './errors';
@@ -25,7 +28,10 @@ export class TfvcRepository implements vscode.Disposable {
 
     constructor(
         private state: WorkspaceState,
-        private restClient: AdoRestClient
+        private restClient: AdoRestClient,
+        private soapClient: TfvcSoapClient,
+        private uploadClient: TfvcUploadClient,
+        private serverWorkspace: ServerWorkspace,
     ) {}
 
     get pendingChanges(): PendingChange[] {
@@ -226,37 +232,92 @@ export class TfvcRepository implements vscode.Disposable {
      * caller can tell the user: server-side shelvesets are visible to
      * teammates and across machines; the local fallback is not.
      */
-    async shelve(name: string, comment?: string): Promise<{ location: 'server' | 'local'; error?: unknown }> {
+    async shelve(name: string, comment?: string): Promise<{ location: 'server' }> {
         const changes = await this.state.getPendingChanges();
         if (changes.length === 0) {
             throw new TfvcError('No changes to shelve.');
         }
 
-        // Try REST-based shelving first, fall back to local
-        try {
-            const apiChanges = await Promise.all(changes.map(async c => {
-                const payload: any = {
-                    changeType: c.changeType,
-                    item: { path: c.serverPath },
-                };
+        // SOAP shelve requires a server-registered workspace with pending
+        // changes already registered there. The flow is:
+        //   1. Get/create the workspace (lazy, persisted across sessions).
+        //   2. Upload content for every add/edit.
+        //   3. PendChanges to stage the set server-side.
+        //   4. Shelve the pended set into the named shelveset.
+        //   5. UndoPendingChanges so the queue is clean for next time.
+        //
+        // On failure anywhere, we throw. Previous versions silently fell back
+        // to a machine-local `.vscode-tfvc/shelves/` copy, but that produced
+        // invisible "shelvesets" reviewers couldn't find. Loud errors let the
+        // user retry or check permissions.
+        const identity = await this.restClient.getBotIdentity();
+        const workspace = await this.serverWorkspace.getOrCreate(this.soapClient, {
+            owner: identity.displayName,
+            ownerDisplayName: identity.displayName,
+        });
 
-                if (c.changeType !== 'delete' && fs.existsSync(c.localPath)) {
-                    payload.newContent = encodeFileContent(fs.readFileSync(c.localPath));
-                }
-
-                return payload;
-            }));
-
-            await this.restClient.createShelveset(name, apiChanges, comment);
-            return { location: 'server' };
-        } catch (err) {
-            // REST shelving unavailable — fall back to local so the user's
-            // in-flight work isn't lost, but surface the failure so they can
-            // retry once the server is reachable. Local shelves are per-machine.
-            logError(`Server shelve failed, saving to local shelf: ${err}`);
-            await this.state.saveLocalShelf(name, comment);
-            return { location: 'local', error: err };
+        const pendRequests: PendChangeRequest[] = [];
+        const serverItems: string[] = [];
+        for (const c of changes) {
+            serverItems.push(c.serverPath);
+            if (c.changeType === 'delete') {
+                pendRequests.push({
+                    serverPath: c.serverPath,
+                    changeType: 'Delete',
+                    itemType: 'File',
+                    downloadId: 0,
+                });
+                continue;
+            }
+            // Add or edit — both need an upload under the same multipart
+            // shape; SOAP PendChanges distinguishes via `req`.
+            const content = fs.existsSync(c.localPath) ? fs.readFileSync(c.localPath) : Buffer.alloc(0);
+            const upload = await this.uploadClient.uploadFile({
+                serverPath: c.serverPath,
+                workspaceName: workspace.name,
+                workspaceOwner: workspace.owner,
+                content,
+            });
+            pendRequests.push({
+                serverPath: c.serverPath,
+                changeType: c.changeType === 'add' ? 'Add' : 'Edit',
+                itemType: 'File',
+                downloadId: upload.downloadId,
+            });
         }
+
+        await this.soapClient.pendChanges(workspace.name, workspace.owner, pendRequests);
+        try {
+            const failures = await this.soapClient.shelve(
+                workspace.name,
+                workspace.owner,
+                serverItems,
+                {
+                    name,
+                    owner: identity.displayName,
+                    ownerDisplayName: identity.displayName,
+                    comment,
+                },
+                /* replace */ true,
+            );
+            if (failures.length > 0) {
+                const first = failures[0];
+                throw new TfvcError(
+                    `Shelve reported ${failures.length} failure(s). First: ${first.code}` +
+                    (first.item ? ` on ${first.item}` : '') +
+                    (first.message ? ` — ${first.message}` : ''),
+                );
+            }
+        } finally {
+            // Clear the workspace's pending queue regardless of shelve
+            // outcome; otherwise the next shelve inherits leftovers.
+            try {
+                await this.soapClient.undoPendingChanges(workspace.name, workspace.owner, serverItems);
+            } catch (undoErr) {
+                logError(`UndoPendingChanges after shelve failed (non-fatal): ${undoErr}`);
+            }
+        }
+        return { location: 'server' };
     }
 
     /**
@@ -325,16 +386,13 @@ export class TfvcRepository implements vscode.Disposable {
         }
     }
 
-    async deleteShelve(name: string): Promise<{ location: 'server' | 'local'; error?: unknown }> {
-        try {
-            const identity = await this.restClient.getBotIdentity();
-            await this.restClient.deleteShelveset(name, identity.displayName);
-            return { location: 'server' };
-        } catch (err) {
-            logError(`Server deleteShelveset failed, deleting local shelf: ${err}`);
-            this.state.deleteLocalShelf(name);
-            return { location: 'local', error: err };
-        }
+    async deleteShelve(name: string): Promise<{ location: 'server' }> {
+        // SOAP deleteShelveset is the correct endpoint — see issue #10.
+        // No fallback: if the server rejects, let the user know so they can
+        // retry or check permissions.
+        const identity = await this.restClient.getBotIdentity();
+        await this.soapClient.deleteShelveset(name, identity.displayName);
+        return { location: 'server' };
     }
 
     async history(filePath: string, count = 25): Promise<HistoryEntry[]> {
