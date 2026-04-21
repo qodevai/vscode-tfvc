@@ -76,7 +76,16 @@ export class TfvcUploadClient {
         const res = await this.postMultipart(body.buffer, body.boundary);
 
         if (res.status >= 400) {
-            throw classifyHttpError(res.status, res.body, `TFVC upload failed for ${req.serverPath}`);
+            const detail = res.body.slice(0, 800);
+            const err = classifyHttpError(res.status, detail, `TFVC upload failed for ${req.serverPath}`);
+            if (detail && !err.message.includes(detail)) {
+                throw new TfvcError(
+                    `${err.message} (upload ${req.serverPath}: ${detail})`,
+                    err.statusCode,
+                    detail,
+                );
+            }
+            throw err;
         }
 
         // The server replies with a small XML fragment carrying the download
