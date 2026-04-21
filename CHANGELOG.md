@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `tfvc.strictSSL` setting (default `true`) — set to `false` to trust self-signed or internal-CA certificates on on-prem Azure DevOps Server. Disables TLS verification entirely, so only flip on networks you trust.
+
 ## [0.3.4]
 
 ### Fixed

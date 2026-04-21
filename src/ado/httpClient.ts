@@ -30,22 +30,48 @@ export interface HttpRequestOptions {
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+// Module-level TLS toggle. On-prem TFS servers often use self-signed or
+// internal-CA certificates that Node's default https agent rejects. The
+// extension flips this from `tfvc.strictSSL` at activation and on config
+// change; all HTTP(S) requests originate here so one setter covers both
+// REST and SOAP paths. Defaults to `true` so nothing weakens unless the
+// user explicitly opts in.
+let globalStrictSSL = true;
+
+export function setStrictSSL(strict: boolean): void {
+    globalStrictSSL = strict;
+}
+
+/** @internal test hook */
+export function getStrictSSL(): boolean {
+    return globalStrictSSL;
+}
+
+function buildRequestOptions(url: string, options: HttpRequestOptions): https.RequestOptions {
+    const parsedUrl = new URL(url);
+    const base: https.RequestOptions = {
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port,
+        path: parsedUrl.pathname + parsedUrl.search,
+        method: options.method || 'GET',
+        headers: options.headers,
+        timeout: options.timeout || DEFAULT_TIMEOUT_MS,
+    };
+    if (parsedUrl.protocol === 'https:' && !globalStrictSSL) {
+        base.rejectUnauthorized = false;
+    }
+    return base;
+}
+
 export function httpRequest(url: string, options: HttpRequestOptions = {}): Promise<HttpResponse> {
     const method = options.method || 'GET';
     const headers: Record<string, string> = { ...options.headers };
+    const reqOptions = buildRequestOptions(url, { ...options, headers });
 
     return new Promise((resolve, reject) => {
-        const parsedUrl = new URL(url);
-        const transport = parsedUrl.protocol === 'https:' ? https : http;
+        const transport = new URL(url).protocol === 'https:' ? https : http;
         const req = transport.request(
-            {
-                hostname: parsedUrl.hostname,
-                port: parsedUrl.port,
-                path: parsedUrl.pathname + parsedUrl.search,
-                method,
-                headers,
-                timeout: options.timeout || DEFAULT_TIMEOUT_MS,
-            },
+            reqOptions,
             (res) => {
                 let data = '';
                 res.on('data', (chunk: Buffer) => { data += chunk.toString(); });
@@ -70,19 +96,12 @@ export function httpRequest(url: string, options: HttpRequestOptions = {}): Prom
 export function httpRequestBuffer(url: string, options: HttpRequestOptions = {}): Promise<HttpBufferResponse> {
     const method = options.method || 'GET';
     const headers: Record<string, string> = { ...options.headers };
+    const reqOptions = buildRequestOptions(url, { ...options, headers });
 
     return new Promise((resolve, reject) => {
-        const parsedUrl = new URL(url);
-        const transport = parsedUrl.protocol === 'https:' ? https : http;
+        const transport = new URL(url).protocol === 'https:' ? https : http;
         const req = transport.request(
-            {
-                hostname: parsedUrl.hostname,
-                port: parsedUrl.port,
-                path: parsedUrl.pathname + parsedUrl.search,
-                method,
-                headers,
-                timeout: options.timeout || DEFAULT_TIMEOUT_MS,
-            },
+            reqOptions,
             (res) => {
                 const chunks: Buffer[] = [];
                 res.on('data', (chunk: Buffer) => { chunks.push(chunk); });
