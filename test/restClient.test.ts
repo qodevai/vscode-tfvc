@@ -120,6 +120,23 @@ describe('AdoRestClient api-version override (v0.3.5)', () => {
         await client.fetchItemContent('$/TestProject/foo.txt');
         assert.strictEqual(captured.at(-1)?.query.get('api-version'), '5.1');
     });
+
+    it('pins connectionData to api-version 1.0 regardless of override (cloud rejects 7.1 without -preview)', async () => {
+        // Regression: getBotIdentity used the client-wide api-version (7.1
+        // default on cloud), which cloud ADO now rejects with
+        // "resource is under preview" on /_apis/connectionData. Shipped as
+        // a bug in v0.3.5; this test locks in the 1.0 pin.
+        captured = [];
+        responder = () => ({
+            body: JSON.stringify({ authenticatedUser: { id: 'u1', displayName: 'Alice' } }),
+        });
+        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '', '7.1');
+        await client.getBotIdentity();
+        const call = captured.at(-1);
+        assert.ok(call?.url.includes('/_apis/connectionData'));
+        assert.strictEqual(call?.query.get('api-version'), '1.0',
+            'connectionData must use 1.0 even when the client-wide override is 7.1 or any other value');
+    });
 });
 
 describe('AdoRestClient.fetchItemContent', () => {

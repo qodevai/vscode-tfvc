@@ -118,14 +118,14 @@ export class AdoRestClient {
         return encodeURIComponent(this.project);
     }
 
-    private buildUrl(path: string, params: Record<string, string> = {}): string {
-        const allParams = { ...params, 'api-version': this.apiVersion };
+    private buildUrl(path: string, params: Record<string, string> = {}, apiVersionOverride?: string): string {
+        const allParams = { ...params, 'api-version': apiVersionOverride || this.apiVersion };
         const qs = new URLSearchParams(allParams).toString();
         return `${this.base}${path}${qs ? '?' + qs : ''}`;
     }
 
-    private async get<T>(path: string, params: Record<string, string> = {}): Promise<T> {
-        const url = this.buildUrl(path, params);
+    private async get<T>(path: string, params: Record<string, string> = {}, apiVersionOverride?: string): Promise<T> {
+        const url = this.buildUrl(path, params, apiVersionOverride);
         const res = await this.request(url);
         if (res.status >= 400) {
             throw classifyHttpError(res.status, res.body, 'ADO API error');
@@ -478,7 +478,11 @@ export class AdoRestClient {
 
     async getBotIdentity(): Promise<{ id: string; displayName: string }> {
         if (this.identityCache) { return this.identityCache; }
-        const data = await this.get<ConnectionData>('/_apis/connectionData');
+        // /_apis/connectionData has been stable at api-version 1.0 since TFS days;
+        // cloud ADO rejects the client's default 7.1 on this endpoint with
+        // "resource is under preview … -preview flag must be supplied". Pin to
+        // 1.0 instead of tracking preview flags — 1.0 works everywhere.
+        const data = await this.get<ConnectionData>('/_apis/connectionData', {}, '1.0');
         const user = data.authenticatedUser;
         this.identityCache = {
             id: String(user.id),

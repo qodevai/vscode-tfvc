@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `getBotIdentity()` now pins `/_apis/connectionData` to `api-version=1.0` instead of inheriting the client-wide default. Cloud ADO rejected 7.1 on this one endpoint with "resource is under preview … -preview flag must be supplied", which silently broke `tfvc.submitVerdict` on v0.3.5 because the response work item couldn't be assigned.
+
 ## [0.3.5]
 
 ### Added
