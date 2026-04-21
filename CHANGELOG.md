@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.7]
+
 ### Fixed
 - `getBotIdentity()` now pins `/_apis/connectionData` to `api-version=1.0` instead of inheriting the client-wide default. Cloud ADO rejected 7.1 on this one endpoint with "resource is under preview … -preview flag must be supplied", which silently broke `tfvc.submitVerdict` on v0.3.5 because the response work item couldn't be assigned.
 - **`tfvc.shelve` now actually shelves on the server** (issue #10). Previous versions called REST endpoints that don't exist (`POST /_apis/tfvc/shelvesets` → HTTP 405); the silent "local shelf" fallback produced machine-local copies that teammates and code reviews couldn't see. The write path is now SOAP against `/VersionControl/v1.0/Repository.asmx`, routed through a lightweight server-registered workspace that the extension manages transparently.
