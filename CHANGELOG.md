@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `TfvcRepository.refresh()` no longer clears the pending-change list on a transient read failure. Previously, if `getPendingChanges()` threw (disk hiccup, permission glitch while hashing), the SCM tree blanked out and made it look like the user had lost their work. The in-memory list is now preserved until a successful refresh replaces it.
 - Review-diff 404 detection in `ReviewFileContentProvider` now checks `TfvcError.statusCode === 404` instead of pattern-matching the error message. Brittle substring matches (`msg.includes('404')`) previously risked either missing real 404s when the message format shifted, or swallowing unrelated errors whose text happened to contain "404".
 - `syncBaseline` now reports a conflict when a server-side-deleted file cannot be unlinked locally (file in use, permission denied), instead of silently ignoring the failure, removing the baseline entry, and reporting `action: 'deleting'`. Previously the file stayed on disk but vanished from every subsequent sync's bookkeeping — quiet desync between tree and baseline.
+- `initRestClient()` failures on config- or PAT-change events now surface as warning toasts pointing the user at their settings, instead of only logging to the output channel. Previously a malformed `adoBaseUrl` or unreachable on-prem server left the extension in a stale state with no visible cue.
 
 ## [0.3.7]
 
