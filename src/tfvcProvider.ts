@@ -3,6 +3,7 @@ import * as path from 'path';
 import { TfvcRepository, PendingChange } from './tfvcRepository';
 import { samePath } from './workspace/pathMapping';
 import { parseWorkItemIds } from './workItemParsing';
+import { validateShelvesetName } from './shelvesetName';
 
 const TFVC_SCHEME = 'tfvc';
 
@@ -394,9 +395,3 @@ export class TfvcSCMProvider implements vscode.Disposable {
     }
 }
 
-function validateShelvesetName(value: string): string | undefined {
-    if (!value.trim()) { return 'Name cannot be empty'; }
-    if (value.startsWith('-')) { return 'Name cannot start with a dash'; }
-    if (/[;$<>|&]/.test(value)) { return 'Name contains invalid characters'; }
-    return undefined;
-}
