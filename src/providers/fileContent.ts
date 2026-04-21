@@ -7,6 +7,7 @@
 
 import * as vscode from 'vscode';
 import { AdoRestClient } from '../ado/restClient';
+import { TfvcError } from '../errors';
 import { logError } from '../outputChannel';
 
 export const REVIEW_SCHEME = 'tfvc-review';
@@ -50,13 +51,15 @@ export class ReviewFileContentProvider implements vscode.TextDocumentContentProv
                 const owner = params.get('owner') || '';
                 content = await this.restClient.fetchShelvedContent(serverPath, shelvesetName, owner);
             } else {
-                // Fetch base (latest committed) version
-                // Returns empty for files that don't exist on server yet (new adds)
+                // Fetch base (latest committed) version. A 404 means the file
+                // doesn't exist on the server yet (new adds in the shelveset);
+                // return empty so the diff view shows "added" cleanly. Any
+                // other error — auth, 500, network — propagates so the user
+                // sees the real cause instead of an empty-looking file.
                 try {
                     content = await this.restClient.fetchItemContent(serverPath);
                 } catch (err) {
-                    const msg = String(err);
-                    if (msg.includes('404') || msg.includes('does not exist')) {
+                    if (err instanceof TfvcError && err.statusCode === 404) {
                         content = '';
                     } else {
                         throw err;
