@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tfvc.unshelve` no longer silently substitutes a local `.vscode-tfvc/shelves/` copy when the server unshelve fails. The fallback was dangerous: a local shelf happens to share the name but holds unrelated data, so users would see "Unshelved" but get different content than what teammates reviewed. REST errors (auth, missing shelveset, network) now propagate to the standard error toast.
 - `tfvc.shelvesets` (List Shelvesets) no longer swallows REST errors and silently shows local `.vscode-tfvc/shelves/` entries as if they were server shelvesets. Auth failures and server outages previously looked like "you have no shelvesets"; now the error propagates to a standard toast.
 - Auto-checkout `onEdit` path no longer swallows unexpected promise rejections. The inner `tryCheckout` already catches its own failures via `notifyFailure`, but the outer `.catch(() => {})` would have silently hidden any future regression where an error escaped. Now logs to the output channel and still routes through the deduped toast.
+- `TfvcRepository.refresh()` no longer clears the pending-change list on a transient read failure. Previously, if `getPendingChanges()` threw (disk hiccup, permission glitch while hashing), the SCM tree blanked out and made it look like the user had lost their work. The in-memory list is now preserved until a successful refresh replaces it.
 
 ## [0.3.7]
 
