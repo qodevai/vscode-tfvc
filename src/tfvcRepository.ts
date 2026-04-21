@@ -264,6 +264,7 @@ export class TfvcRepository implements vscode.Disposable {
 
         const pendRequests: PendChangeRequest[] = [];
         const serverItems: string[] = [];
+        const uploadQueue: Array<{ serverPath: string; content: Buffer }> = [];
         for (const c of changes) {
             serverItems.push(c.serverPath);
             if (c.changeType === 'delete') {
@@ -275,24 +276,30 @@ export class TfvcRepository implements vscode.Disposable {
                 });
                 continue;
             }
-            // Add or edit — both need an upload under the same multipart
-            // shape; SOAP PendChanges distinguishes via `req`.
-            const content = fs.existsSync(c.localPath) ? fs.readFileSync(c.localPath) : Buffer.alloc(0);
-            const upload = await this.uploadClient.uploadFile({
-                serverPath: c.serverPath,
-                workspaceName: workspace.name,
-                workspaceOwner: workspace.owner,
-                content,
-            });
+            // Add or edit — both upload content under the same multipart
+            // shape. PendChanges runs BEFORE the upload (the server expects
+            // the item to already be in the pending queue; otherwise
+            // upload.ashx returns "item is not checked out").
             pendRequests.push({
                 serverPath: c.serverPath,
                 changeType: c.changeType === 'add' ? 'Add' : 'Edit',
                 itemType: 'File',
-                downloadId: upload.downloadId,
+                downloadId: 0,
             });
+            const content = fs.existsSync(c.localPath) ? fs.readFileSync(c.localPath) : Buffer.alloc(0);
+            uploadQueue.push({ serverPath: c.serverPath, content });
         }
 
         await this.soapClient.pendChanges(workspace.name, workspace.owner, pendRequests);
+
+        for (const u of uploadQueue) {
+            await this.uploadClient.uploadFile({
+                serverPath: u.serverPath,
+                workspaceName: workspace.name,
+                workspaceOwner: workspace.owner,
+                content: u.content,
+            });
+        }
         try {
             const failures = await this.soapClient.shelve(
                 workspace.name,

@@ -166,6 +166,17 @@ describe('Live ADO: TFVC shelveset write round-trip (SOAP)', () => {
             createdWorkspace = { name: ws.name, owner: ws.owner };
             console.log('DEBUG server workspace:', JSON.stringify(ws));
 
+            // PendChanges BEFORE upload: the upload endpoint requires the
+            // item to already be checked out (in the workspace's pending
+            // queue). Sending PendAdd with did=0 registers the entry; the
+            // subsequent upload attaches the content server-side.
+            await soap.pendChanges(ws.name, ws.owner, [{
+                serverPath: sentinelPath,
+                changeType: 'Add',
+                itemType: 'File',
+                downloadId: 0,
+            }]);
+
             const uploaded = await upload.uploadFile({
                 serverPath: sentinelPath,
                 workspaceName: ws.name,
@@ -173,13 +184,6 @@ describe('Live ADO: TFVC shelveset write round-trip (SOAP)', () => {
                 content,
             });
             assert.ok(uploaded.hash.length > 0, 'upload response should carry a hash');
-
-            await soap.pendChanges(ws.name, ws.owner, [{
-                serverPath: sentinelPath,
-                changeType: 'Add',
-                itemType: 'File',
-                downloadId: uploaded.downloadId,
-            }]);
 
             const failures = await soap.shelve(
                 ws.name,
