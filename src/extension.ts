@@ -9,7 +9,7 @@ import { AutoCheckoutHandler } from './autoCheckout';
 import { WorkspaceState } from './workspace/workspaceState';
 import { AdoRestClient, buildOnPremBase } from './ado/restClient';
 import { AdoSoapClient } from './ado/soapClient';
-import { setStrictSSL } from './ado/httpClient';
+import { setStrictSSL, setProxyUrl, resolveProxyUrl } from './ado/httpClient';
 import { ReviewTreeProvider, ReviewRequestItem, ReviewFileItem } from './providers/reviewTree';
 import { ReviewFileContentProvider, REVIEW_SCHEME } from './providers/fileContent';
 import { ReviewVerdict } from './ado/types';
@@ -65,6 +65,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const baseUrl = cfg.get<string>('adoBaseUrl', '');
         const collectionPath = cfg.get<string>('adoCollectionPath', '');
         setStrictSSL(cfg.get<boolean>('strictSSL', true));
+        setProxyUrl(resolveProxyUrl(cfg.get<string>('proxy', '')));
 
         disposeRepoScoped();
 
@@ -286,7 +287,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 e.affectsConfiguration('tfvc.adoProject') ||
                 e.affectsConfiguration('tfvc.adoBaseUrl') ||
                 e.affectsConfiguration('tfvc.adoCollectionPath') ||
-                e.affectsConfiguration('tfvc.strictSSL')
+                e.affectsConfiguration('tfvc.strictSSL') ||
+                e.affectsConfiguration('tfvc.proxy')
             ) {
                 initRestClient().catch(err => logError(`Config-change re-init failed: ${err}`));
             }
