@@ -78,7 +78,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             return;
         }
 
-        restClient = new AdoRestClient(org, pat, project, baseUrl, collectionPath);
+        const apiVersionOverride = cfg.get<string>('adoApiVersion', '');
+        restClient = new AdoRestClient(org, pat, project, baseUrl, collectionPath, apiVersionOverride);
         reviewTree.setRestClient(restClient);
         reviewContent.setRestClient(restClient);
 
@@ -287,6 +288,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 e.affectsConfiguration('tfvc.adoProject') ||
                 e.affectsConfiguration('tfvc.adoBaseUrl') ||
                 e.affectsConfiguration('tfvc.adoCollectionPath') ||
+                e.affectsConfiguration('tfvc.adoApiVersion') ||
                 e.affectsConfiguration('tfvc.strictSSL') ||
                 e.affectsConfiguration('tfvc.proxy')
             ) {

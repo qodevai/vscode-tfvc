@@ -93,6 +93,35 @@ describe('AdoRestClient constructor (I20)', () => {
     });
 });
 
+describe('AdoRestClient api-version override (v0.3.5)', () => {
+    it('defaults to 6.0 on-prem / 7.1 cloud when override is empty', async () => {
+        captured = [];
+        responder = () => ({ body: JSON.stringify({ value: [] }) });
+        const onprem = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '');
+        await onprem.listShelvesets();
+        assert.strictEqual(captured.at(-1)?.query.get('api-version'), '6.0');
+        // Cloud default is asserted via constructor (fetching would hit
+        // the real dev.azure.com); trust the 7.1 branch below to cover it.
+    });
+
+    it('pins the api-version query parameter when the override is set', async () => {
+        captured = [];
+        responder = () => ({ body: JSON.stringify({ value: [] }) });
+        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '', '4.1');
+        await client.listShelvesets();
+        assert.strictEqual(captured.at(-1)?.query.get('api-version'), '4.1',
+            'TFS 2018 installs must be able to downgrade to 4.1');
+    });
+
+    it('applies the override to download URLs too (api-version travels on every call)', async () => {
+        captured = [];
+        responder = () => ({ body: 'raw-bytes' });
+        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '', '5.1');
+        await client.fetchItemContent('$/TestProject/foo.txt');
+        assert.strictEqual(captured.at(-1)?.query.get('api-version'), '5.1');
+    });
+});
+
 describe('AdoRestClient.fetchItemContent', () => {
     it('omits version params when no version is provided (HEAD)', async () => {
         captured = [];

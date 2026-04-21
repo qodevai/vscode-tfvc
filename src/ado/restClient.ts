@@ -73,7 +73,8 @@ export class AdoRestClient {
         pat: string,
         project: string,
         baseUrl = '',
-        collectionPath = ''
+        collectionPath = '',
+        apiVersionOverride = ''
     ) {
         // Validate inputs at the boundary so callers get a clear error instead
         // of later HTTP failures against a bogus URL like
@@ -92,10 +93,10 @@ export class AdoRestClient {
                 throw new TfvcError(`AdoRestClient: baseUrl must start with http(s):// (got "${baseUrl}")`);
             }
             this.base = buildOnPremBase(baseUrl, collectionPath);
-            this.apiVersion = '6.0';
+            this.apiVersion = apiVersionOverride || '6.0';
         } else {
             this.base = `https://dev.azure.com/${encodeURIComponent(org)}`;
-            this.apiVersion = '7.1';
+            this.apiVersion = apiVersionOverride || '7.1';
         }
         this.project = project;
         this.scope = `$/${project}`;
