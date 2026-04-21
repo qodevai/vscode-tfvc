@@ -1,8 +1,7 @@
-import * as fs from 'fs';
-import * as path from 'path';
 import * as vscode from 'vscode';
 import { TfvcRepository } from './tfvcRepository';
 import { samePath } from './workspace/pathMapping';
+import { isPathWithinWorkspace, isReadOnly } from './autoCheckoutHelpers';
 import { logError } from './outputChannel';
 
 /**
@@ -78,19 +77,12 @@ export class AutoCheckoutHandler implements vscode.Disposable {
 
         const fsPath = uri.fsPath;
 
-        // Must be within workspace (case-insensitive for macOS/Windows)
-        const rel = path.relative(this.workspaceRoot, fsPath);
-        if (!rel || rel.startsWith('..')) { return; }
-
-        // Avoid duplicate concurrent checkouts for the same file
+        if (!isPathWithinWorkspace(this.workspaceRoot, fsPath)) { return; }
         if (this.pendingCheckouts.has(fsPath)) { return; }
+        if (!isReadOnly(fsPath)) { return; }
 
-        // Already checked out (writable) — no action needed
-        if (!this.isReadOnly(fsPath)) { return; }
-
-        // Already has a pending change — no checkout needed
-        const existing = this.repo.pendingChanges.find(c => samePath(c.localPath, fsPath));
-        if (existing) { return; }
+        // Already has a pending change — no checkout needed.
+        if (this.repo.pendingChanges.some(c => samePath(c.localPath, fsPath))) { return; }
 
         this.pendingCheckouts.add(fsPath);
         try {
@@ -116,16 +108,6 @@ export class AutoCheckoutHandler implements vscode.Disposable {
         vscode.window.showWarningMessage(
             `TFVC auto-checkout failed for ${fileName}: ${msg}. The file remains read-only — run TFVC: Check Out manually if needed.`
         );
-    }
-
-    private isReadOnly(fsPath: string): boolean {
-        try {
-            const stat = fs.statSync(fsPath);
-            // Check write permission for owner
-            return (stat.mode & 0o200) === 0;
-        } catch {
-            return false;
-        }
     }
 
     dispose(): void {
