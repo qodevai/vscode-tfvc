@@ -63,8 +63,14 @@ export class AutoCheckoutHandler implements vscode.Disposable {
     }
 
     private onEdit(document: vscode.TextDocument): void {
-        // Fire-and-forget — don't block typing
-        this.tryCheckout(document.uri).catch(() => {});
+        // Fire-and-forget so typing isn't blocked. tryCheckout catches its
+        // own errors and routes them through notifyFailure; this outer
+        // handler is belt-and-braces against a future refactor that might
+        // let a rejection escape. Log it instead of swallowing silently.
+        this.tryCheckout(document.uri).catch(err => {
+            logError(`Unhandled auto-checkout rejection for ${document.uri.fsPath}: ${err}`);
+            this.notifyFailure(document.uri.fsPath, err);
+        });
     }
 
     private async tryCheckout(uri: vscode.Uri): Promise<void> {
