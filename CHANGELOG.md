@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - `initRestClient()` invocations are now serialized via a promise chain. Rapid config or PAT changes previously could interleave two reinit runs: both would dispose scoped state, both would create fresh clients, and the second would leak the first's repo into `repoDisposables`. Chaining ensures each run reads fresh config when its turn comes, and a failure no longer stalls subsequent runs.
+- `TfvcRepository` no longer imports `vscode` directly. The change-event emitter is now passed in via the constructor (`ChangeEmitter` interface — structurally compatible with `vscode.EventEmitter<void>`), so the class can be unit-tested without a vscode runtime. `outputChannel.ts` lazy-loads `vscode` and falls back to `console.error` when it's not available, for the same reason.
+
+### Added
+- `test/tfvcRepository.test.ts` — 27 unit tests covering `TfvcRepository`: the `refresh` preservation contract from the silent-fail sweep, `shelve` / `unshelve` end-to-end with mocked clients, `checkin` payload construction and baseline update, thin REST/SOAP delegations, and state-mutation helpers.
 
 ### Fixed
 - `tfvc.unshelve` no longer silently substitutes a local `.vscode-tfvc/shelves/` copy when the server unshelve fails. The fallback was dangerous: a local shelf happens to share the name but holds unrelated data, so users would see "Unshelved" but get different content than what teammates reviewed. REST errors (auth, missing shelveset, network) now propagate to the standard error toast.

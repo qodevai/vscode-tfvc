@@ -129,7 +129,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const state = new WorkspaceState(root, scope, logError);
         const stateDir = path.join(root, STATE_DIR);
         const serverWorkspace = new ServerWorkspace(root, stateDir);
-        repo = new TfvcRepository(state, restClient, tfvcSoap, tfvcUpload, serverWorkspace);
+        repo = new TfvcRepository(state, restClient, tfvcSoap, tfvcUpload, serverWorkspace, new vscode.EventEmitter<void>());
 
         // Best-effort delete of the server-registered TFVC workspace when the
         // extension deactivates or the config changes. The workspace is an
