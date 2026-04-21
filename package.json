@@ -368,6 +368,7 @@
     "lint": "eslint src --ext ts",
     "test": "tsc -p tsconfig.test.json && node --test out-test/test/*.test.js",
     "test:e2e": "tsc -p tsconfig.e2e.json && tsc -p ./ && node out-e2e/runTest.js",
+    "test:live": "tsc -p tsconfig.live.json && node --test out-live/test-live/*.test.js",
     "package": "vsce package --no-dependencies"
   },
   "devDependencies": {

@@ -5,12 +5,15 @@
 src/**
 test/**
 test-e2e/**
+test-live/**
 out-test/**
 out-e2e/**
+out-live/**
 node_modules/**
 tsconfig.json
 tsconfig.test.json
 tsconfig.e2e.json
+tsconfig.live.json
 esbuild.mjs
 .github/**
 .gitignore
