@@ -48,13 +48,21 @@ Works with both Azure DevOps Services (cloud) and Azure DevOps Server (on-prem).
 | `tfvc.adoProject` | Azure DevOps project name. | `""` |
 | `tfvc.adoBaseUrl` | On-prem ADO Server base URL. Leave empty for cloud. | `""` |
 | `tfvc.adoCollectionPath` | On-prem collection path (e.g. `/tfs/DefaultCollection`). | `""` |
+| `tfvc.adoApiVersion` | Override the ADO REST `api-version` query parameter. Leave empty for auto (7.1 cloud, 6.0 on-prem). Older TFS: `4.1` (2018), `5.0`/`5.1` (2019). | `""` |
 | `tfvc.autoCheckout` | When to auto-checkout files: `disabled`, `onSave`, `onEdit`. | `onSave` |
 | `tfvc.autoRefreshInterval` | Auto-refresh interval in seconds. `0` disables. | `0` |
+| `tfvc.strictSSL` | Validate the server's TLS certificate. Set to `false` to trust self-signed or internal-CA certs on on-prem — disables verification entirely, so only flip on trusted networks. | `true` |
+| `tfvc.proxy` | HTTP proxy URL (e.g. `http://user:pass@proxy.corp:8080`). Empty falls back to the `HTTPS_PROXY` / `HTTP_PROXY` env vars. | `""` |
+| `tfvc.reviewRequestOpenState` | Workflow state used to filter open code reviews. Localized per server (`"Angefordert"` on German TFS). | `"Requested"` |
+| `tfvc.reviewResponseClosedState` | Workflow state the verdict flow transitions a Code Review Response to. Localized per server (`"Geschlossen"` on German TFS). | `"Closed"` |
+
+### Non-English Azure DevOps Server
+
+Work item *type* and *category* lookups happen via language-neutral category reference names (`Microsoft.CodeReviewRequestCategory` / `Microsoft.CodeReviewResponseCategory`), so those need no configuration. Workflow **state** values are still localized — override `tfvc.reviewRequestOpenState` and `tfvc.reviewResponseClosedState` on non-English servers.
 
 ## Known Limitations
 
 - **Large repositories**: initial workspace initialization downloads baseline metadata for all mapped files. This can be slow for very large trees.
-- **No proxy support**: the extension uses Node's default `https` stack. HTTP/HTTPS proxies are not explicitly handled.
 - **SOAP parsing via regex**: the code review comment client parses SOAP responses with regex rather than a full XML parser. Well-formed ADO responses work; unusual responses may not.
 - **Multi-root workspaces**: the extension picks a single workspace folder and warns if multiple folders contain `.vscode-tfvc/`. For full isolation, open each TFVC project in its own VS Code window.
 - **No automatic retry**: transient network failures aren't automatically retried.
