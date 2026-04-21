@@ -22,11 +22,28 @@ import {
     AdoChangeResponse,
     AdoChangesetResponse,
     AdoWorkItemResponse,
+    AdoWorkItemTypeCategory,
 } from './types';
 import { httpRequest, httpRequestBuffer, HttpResponse, HttpBufferResponse, buildBasicAuthHeader } from './httpClient';
 import { classifyHttpError, TfvcError } from '../errors';
 
 const MAX_BATCH_SIZE = 200;
+
+/** Language-neutral category reference names — constant across all TFS/ADO locales. */
+export const CATEGORY_CODE_REVIEW_REQUEST = 'Microsoft.CodeReviewRequestCategory';
+export const CATEGORY_CODE_REVIEW_RESPONSE = 'Microsoft.CodeReviewResponseCategory';
+
+/**
+ * Join an on-prem base URL and collection path robustly. The user-facing
+ * settings let people type `/tfs/DefaultCollection`, `tfs/DefaultCollection`,
+ * or `/tfs/DefaultCollection/` — all should produce the same result.
+ * Exported for reuse by the SOAP client base URL.
+ */
+export function buildOnPremBase(baseUrl: string, collectionPath: string): string {
+    const cleanBase = baseUrl.replace(/\/+$/, '');
+    const cleanPath = collectionPath.replace(/^\/+/, '').replace(/\/+$/, '');
+    return cleanPath ? `${cleanBase}/${cleanPath}` : cleanBase;
+}
 
 interface AdoListResponse<T> {
     value: T[];
@@ -49,6 +66,7 @@ export class AdoRestClient {
     readonly scope: string;
 
     private identityCache: { id: string; displayName: string } | undefined;
+    private readonly categoryCache = new Map<string, string>();
 
     constructor(
         org: string,
@@ -73,7 +91,7 @@ export class AdoRestClient {
             if (!/^https?:\/\//i.test(baseUrl)) {
                 throw new TfvcError(`AdoRestClient: baseUrl must start with http(s):// (got "${baseUrl}")`);
             }
-            this.base = `${baseUrl.replace(/\/+$/, '')}${collectionPath}`;
+            this.base = buildOnPremBase(baseUrl, collectionPath);
             this.apiVersion = '6.0';
         } else {
             this.base = `https://dev.azure.com/${encodeURIComponent(org)}`;
@@ -312,14 +330,20 @@ export class AdoRestClient {
         return this.get<WorkItem>(`/_apis/wit/workitems/${witId}`, params);
     }
 
-    async queryOpenReviews(): Promise<CodeReviewRequest[]> {
-        // Escape single quotes in project name to prevent WIQL injection
+    async queryOpenReviews(openState = 'Requested'): Promise<CodeReviewRequest[]> {
+        // WIQL uses `IN GROUP '<category-ref-name>'` — language-neutral — rather
+        // than the work-item-type display name, which is localized per server
+        // (e.g. `Codereviewanforderung` on a German TFS).
+        //
+        // State values are still localized and not queryable by category, so
+        // the caller must pass the project-specific display name.
         const safeProject = this.project.replace(/'/g, "''");
+        const safeState = openState.replace(/'/g, "''");
         const wiql = {
             query: `SELECT [System.Id], [System.Title], [System.CreatedDate], [System.CreatedBy], [System.State]
                     FROM WorkItems
-                    WHERE [System.WorkItemType] = 'Code Review Request'
-                      AND [System.State] = 'Requested'
+                    WHERE [System.WorkItemType] IN GROUP '${CATEGORY_CODE_REVIEW_REQUEST}'
+                      AND [System.State] = '${safeState}'
                       AND [System.TeamProject] = '${safeProject}'
                     ORDER BY [System.CreatedDate] DESC`,
         };
@@ -370,7 +394,8 @@ export class AdoRestClient {
         requestWitId: number,
         assignedTo: string,
         verdict: ReviewVerdict,
-        closingComment = ''
+        closingComment = '',
+        closedState = 'Closed'
     ): Promise<number> {
         const createOps = [
             { op: 'add', path: '/fields/System.Title', value: title },
@@ -385,13 +410,17 @@ export class AdoRestClient {
             },
         ];
 
+        // The workitems-by-type endpoint requires the work item type's
+        // localized display name (e.g. `Codereviewantwort` in German), so we
+        // resolve it from the stable category reference name.
+        const responseTypeName = await this.getWorkItemTypeByCategory(CATEGORY_CODE_REVIEW_RESPONSE);
         const created = await this.patch<{ id: number }>(
-            `/${this.encodedProject}/_apis/wit/workitems/$Code%20Review%20Response`,
+            `/${this.encodedProject}/_apis/wit/workitems/$${encodeURIComponent(responseTypeName)}`,
             createOps
         );
         const responseWitId = created.id;
 
-        await this.closeReviewResponse(responseWitId, verdict, 'Closed', closingComment);
+        await this.closeReviewResponse(responseWitId, verdict, closedState, closingComment);
         return responseWitId;
     }
 
@@ -411,6 +440,37 @@ export class AdoRestClient {
             ops.push({ op: 'add', path: '/fields/Microsoft.VSTS.CodeReview.ClosingComment', value: closingComment });
         }
         await this.patch<unknown>(`/_apis/wit/workitems/${responseWitId}`, ops);
+    }
+
+    // ── Work item type categories ───────────────────────────────────────
+
+    /**
+     * Resolve a work-item-type category reference name (e.g.
+     * `Microsoft.CodeReviewResponseCategory`) to the project's localized type
+     * display name — required for URLs like `/_apis/wit/workitems/$<Type>`,
+     * which don't accept the reference name.
+     *
+     * On a German server `Microsoft.CodeReviewResponseCategory` resolves to
+     * `Codereviewantwort`; on an English server it's `Code Review Response`.
+     * Cached per process because the mapping is static per project.
+     */
+    async getWorkItemTypeByCategory(categoryReferenceName: string): Promise<string> {
+        const cached = this.categoryCache.get(categoryReferenceName);
+        if (cached) { return cached; }
+
+        const data = await this.get<AdoWorkItemTypeCategory>(
+            `/${this.encodedProject}/_apis/wit/workitemtypecategories/${encodeURIComponent(categoryReferenceName)}`
+        );
+        const name = data.defaultWorkItemType?.name
+            || data.workItemTypes?.[0]?.name;
+        if (!name) {
+            throw new TfvcError(
+                `Work item type category "${categoryReferenceName}" has no work item types. ` +
+                `This usually means the project's process template does not include code review support.`
+            );
+        }
+        this.categoryCache.set(categoryReferenceName, name);
+        return name;
     }
 
     // ── Identity ────────────────────────────────────────────────────────
