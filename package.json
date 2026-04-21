@@ -348,6 +348,11 @@
           "type": "boolean",
           "default": true,
           "description": "Validate the server's TLS certificate. Set to false to trust self-signed or internal-CA certificates on on-prem Azure DevOps Server — disables certificate verification entirely, so only turn off on networks you trust."
+        },
+        "tfvc.proxy": {
+          "type": "string",
+          "default": "",
+          "description": "HTTP proxy URL to tunnel ADO requests through (e.g. 'http://user:pass@proxy.corp:8080'). Leave empty to use the HTTPS_PROXY / HTTP_PROXY environment variables, or direct connections."
         }
       }
     }
