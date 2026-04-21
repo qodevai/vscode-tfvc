@@ -343,6 +343,11 @@
           "type": "string",
           "default": "Closed",
           "description": "State value the verdict workflow transitions a Code Review Response to. Localized on non-English ADO servers (e.g. 'Geschlossen' on German TFS)."
+        },
+        "tfvc.strictSSL": {
+          "type": "boolean",
+          "default": true,
+          "description": "Validate the server's TLS certificate. Set to false to trust self-signed or internal-CA certificates on on-prem Azure DevOps Server — disables certificate verification entirely, so only turn off on networks you trust."
         }
       }
     }
