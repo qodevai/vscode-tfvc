@@ -246,7 +246,19 @@ export class TfvcSoapClient {
             // Try to pull the fault string so the caller gets a useful error.
             const fault = /<faultstring>([\s\S]*?)<\/faultstring>/i.exec(res.body);
             const detail = fault ? decodeXmlEntities(fault[1]) : res.body.slice(0, 500);
-            throw classifyHttpError(res.status, detail, `TFVC SOAP ${operation} failed`);
+            // For SOAP calls the server's faultstring is the diagnostic
+            // signal — classifyHttpError's user-friendly "server error (500)"
+            // hides it. Keep status + prefix but fold the detail into the
+            // message so stack traces and test output show what went wrong.
+            const err = classifyHttpError(res.status, detail, `TFVC SOAP ${operation} failed`);
+            if (detail && !err.message.includes(detail)) {
+                throw new TfvcError(
+                    `${err.message} (${operation}: ${detail})`,
+                    err.statusCode,
+                    detail,
+                );
+            }
+            throw err;
         }
         return res.body;
     }
