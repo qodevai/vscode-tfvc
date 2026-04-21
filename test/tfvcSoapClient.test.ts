@@ -84,8 +84,10 @@ describe('TfvcSoapClient.createWorkspace', () => {
             computer: 'laptop-1',
             comment: 'test',
         });
-        // Request shape
-        assert.match(captured[0].body, /<t:Workspace[^>]+name="vscode-tfvc-1"/);
+        // Request shape — TEE serialises the workspace as a single
+        // <workspace> element (lowercase) with attributes directly on it;
+        // a nested <Workspace> wrapper leaves OwnerName null server-side.
+        assert.match(captured[0].body, /<t:workspace[^>]+name="vscode-tfvc-1"/);
         assert.match(captured[0].body, /comment="test"/);
         assert.match(captured[0].body, /islocal="false"/);
         // Parsed response
@@ -106,7 +108,7 @@ describe('TfvcSoapClient.createWorkspace', () => {
             computer: 'machine',
         });
         const envelope = captured[0].body;
-        assert.match(envelope, /name="a &lt;b&gt; &quot;c&quot; &amp; d"/);
+        assert.match(envelope, /<t:workspace[^>]+name="a &lt;b&gt; &quot;c&quot; &amp; d"/);
         assert.ok(!envelope.includes('name="a <b>'), 'raw unescaped chars must not appear');
     });
 });

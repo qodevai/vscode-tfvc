@@ -90,12 +90,14 @@ export class TfvcSoapClient {
      * (it may normalize them) for subsequent calls.
      */
     async createWorkspace(ws: WorkspaceInfo): Promise<WorkspaceInfo> {
-        const xml = this.envelope('CreateWorkspace', [
-            '<t:workspace>',
-            this.workspaceElement(ws),
-            '</t:workspace>',
-        ].join(''));
+        // TEE serialises CreateWorkspace as a single `<workspace>` element
+        // (lowercase) that carries the name/owner/etc. attributes directly.
+        // Do NOT nest a <Workspace> element inside — the server reads the
+        // outer element only and rejects empty OwnerName otherwise.
+        const xml = this.envelope('CreateWorkspace', this.workspaceElement(ws, 'workspace'));
         const response = await this.post(xml, 'CreateWorkspace');
+        // Server response wraps the created workspace in a <Workspace> element
+        // (capitalised, under <CreateWorkspaceResponse><CreateWorkspaceResult>…).
         const wsEl = /<Workspace\s+([^>]*?)(?:\/>|>)/i.exec(response);
         if (!wsEl) {
             throw new TfvcError(`CreateWorkspace: could not parse response: ${response.slice(0, 500)}`);
@@ -272,9 +274,9 @@ export class TfvcSoapClient {
         return res.body;
     }
 
-    private workspaceElement(ws: WorkspaceInfo): string {
+    private workspaceElement(ws: WorkspaceInfo, elementName = 'Workspace'): string {
         return [
-            '<t:Workspace',
+            `<t:${elementName}`,
             ` name="${escapeXmlAttr(ws.name)}"`,
             ` owner="${escapeXmlAttr(ws.owner)}"`,
             ` ownerdisp="${escapeXmlAttr(ws.ownerDisplayName)}"`,
