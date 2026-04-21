@@ -29,10 +29,33 @@ describe('classifyHttpError', () => {
         assert.match(err.message, /rate-limited/i);
     });
 
-    it('maps 5xx to a server-error message', () => {
-        const err = classifyHttpError(503, 'service unavailable', 'ADO API error');
-        assert.strictEqual(err.statusCode, 503);
-        assert.match(err.message, /server error \(503\)/);
+    it('maps 400 to a bad-request message with detail', () => {
+        const err = classifyHttpError(400, 'TF400890: Invalid foo', 'ADO API error');
+        assert.strictEqual(err.statusCode, 400);
+        assert.match(err.message, /Bad Request/);
+        assert.match(err.message, /TF400890/);
+    });
+
+    it('maps 408 to a timeout message pointing at proxy/network', () => {
+        const err = classifyHttpError(408, 'request timeout', 'ADO API error');
+        assert.strictEqual(err.statusCode, 408);
+        assert.match(err.message, /timed out/i);
+        assert.match(err.message, /tfvc\.proxy/);
+    });
+
+    it('maps 502 / 503 / 504 to a gateway/unavailable message', () => {
+        for (const status of [502, 503, 504]) {
+            const err = classifyHttpError(status, 'unavailable', 'ADO API error');
+            assert.strictEqual(err.statusCode, status);
+            assert.match(err.message, /temporarily unavailable/i, `status ${status}`);
+            assert.ok(err.message.includes(String(status)));
+        }
+    });
+
+    it('falls back to the generic 5xx message for other server errors', () => {
+        const err = classifyHttpError(500, 'internal', 'ADO API error');
+        assert.strictEqual(err.statusCode, 500);
+        assert.match(err.message, /server error \(500\)/);
     });
 
     it('falls back to generic formatting for unrecognised statuses', () => {
