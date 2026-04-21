@@ -96,13 +96,11 @@ export class TfvcSoapClient {
         // outer element only and rejects empty OwnerName otherwise.
         const xml = this.envelope('CreateWorkspace', this.workspaceElement(ws, 'workspace'));
         const response = await this.post(xml, 'CreateWorkspace');
-        // Server response wraps the created workspace in a <Workspace> element
-        // (capitalised, under <CreateWorkspaceResponse><CreateWorkspaceResult>…).
-        const wsEl = /<Workspace\s+([^>]*?)(?:\/>|>)/i.exec(response);
-        if (!wsEl) {
+        const parsed = parseResultWorkspace(response, 'CreateWorkspaceResult');
+        if (!parsed) {
             throw new TfvcError(`CreateWorkspace: could not parse response: ${response.slice(0, 500)}`);
         }
-        return this.parseWorkspace(wsEl[1]);
+        return parsed;
     }
 
     /**
@@ -117,8 +115,7 @@ export class TfvcSoapClient {
         ].join(''));
         try {
             const response = await this.post(xml, 'QueryWorkspace');
-            const wsEl = /<Workspace\s+([^>]*?)(?:\/>|>)/i.exec(response);
-            return wsEl ? this.parseWorkspace(wsEl[1]) : undefined;
+            return parseResultWorkspace(response, 'QueryWorkspaceResult');
         } catch (err) {
             // "workspace does not exist" comes back as an HTTP 500 with a SOAP
             // fault; classifyHttpError stores the parsed fault text on `detail`,
@@ -303,16 +300,38 @@ export class TfvcSoapClient {
         return parts.join('');
     }
 
-    private parseWorkspace(attrs: string): WorkspaceInfo {
-        return {
-            name: extractAttr(attrs, 'name') || '',
-            owner: extractAttr(attrs, 'owner') || '',
-            ownerDisplayName: extractAttr(attrs, 'ownerdisp') || '',
-            ownerUniqueName: extractAttr(attrs, 'owneruniq'),
-            computer: extractAttr(attrs, 'computer') || '',
-            comment: extractAttr(attrs, 'comment'),
-        };
+}
+
+/**
+ * Pull workspace-shaped attributes out of the server's response. TEE's
+ * server returns both `<{Operation}Result name="..." owner="..." …>` on
+ * modern endpoints and `<Workspace name="..." ...>` nested inside on
+ * older ones; accept whichever shows up.
+ */
+function parseResultWorkspace(xml: string, resultElement: string): WorkspaceInfo | undefined {
+    const resultRegex = new RegExp(`<${resultElement}\\s+([^>]*?)(?:\\/>|>)`, 'i');
+    const hit = resultRegex.exec(xml) ?? /<Workspace\s+([^>]*?)(?:\/>|>)/i.exec(xml);
+    if (!hit) { return undefined; }
+    const attrs = hit[1];
+    // If the result element is empty (no attributes), the server tucked the
+    // workspace inside a child element — dig one more level.
+    if (!/name=/i.test(attrs)) {
+        const nested = /<Workspace\s+([^>]*?)(?:\/>|>)/i.exec(xml);
+        if (!nested) { return undefined; }
+        return attrsToWorkspace(nested[1]);
     }
+    return attrsToWorkspace(attrs);
+}
+
+function attrsToWorkspace(attrs: string): WorkspaceInfo {
+    return {
+        name: extractAttr(attrs, 'name') || '',
+        owner: extractAttr(attrs, 'owner') || '',
+        ownerDisplayName: extractAttr(attrs, 'ownerdisp') || '',
+        ownerUniqueName: extractAttr(attrs, 'owneruniq'),
+        computer: extractAttr(attrs, 'computer') || '',
+        comment: extractAttr(attrs, 'comment'),
+    };
 }
 
 /**
