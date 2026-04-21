@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { TfvcRepository } from './tfvcRepository';
 import { samePath } from './workspace/pathMapping';
+import { metadataFor } from './changeTypeMetadata';
 
 /**
  * Provides file decoration badges (M/A/D/C) in the Explorer tree
@@ -27,48 +28,14 @@ export class TfvcDecorationProvider implements vscode.FileDecorationProvider, vs
 
     provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
         const change = this.repo.pendingChanges.find(c => samePath(c.localPath, uri.fsPath));
-        if (!change) {
-            return undefined;
-        }
+        if (!change) { return undefined; }
 
-        switch (change.changeType) {
-            case 'edit':
-                return {
-                    badge: 'M',
-                    color: new vscode.ThemeColor('gitDecoration.modifiedResourceForeground'),
-                    tooltip: 'Modified (TFVC)',
-                };
-            case 'add':
-                return {
-                    badge: 'A',
-                    color: new vscode.ThemeColor('gitDecoration.addedResourceForeground'),
-                    tooltip: 'Added (TFVC)',
-                };
-            case 'delete':
-                return {
-                    badge: 'D',
-                    color: new vscode.ThemeColor('gitDecoration.deletedResourceForeground'),
-                    tooltip: 'Deleted (TFVC)',
-                };
-            case 'rename':
-                return {
-                    badge: 'R',
-                    color: new vscode.ThemeColor('gitDecoration.renamedResourceForeground'),
-                    tooltip: 'Renamed (TFVC)',
-                };
-            case 'merge':
-                return {
-                    badge: 'C',
-                    color: new vscode.ThemeColor('gitDecoration.conflictingResourceForeground'),
-                    tooltip: 'Conflict (TFVC)',
-                };
-            default:
-                return {
-                    badge: 'M',
-                    color: new vscode.ThemeColor('gitDecoration.modifiedResourceForeground'),
-                    tooltip: `${change.changeType} (TFVC)`,
-                };
-        }
+        const info = metadataFor(change.changeType);
+        return {
+            badge: info.letter,
+            color: info.themeColor ? new vscode.ThemeColor(info.themeColor) : undefined,
+            tooltip: `${info.label} (TFVC)`,
+        };
     }
 
     dispose(): void {
