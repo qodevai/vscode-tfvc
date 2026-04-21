@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `initRestClient()` failures on config- or PAT-change events now surface as warning toasts pointing the user at their settings, instead of only logging to the output channel. Previously a malformed `adoBaseUrl` or unreachable on-prem server left the extension in a stale state with no visible cue.
 - `findTfvcRoots()` now logs filesystem errors when scanning workspace folders for `.vscode-tfvc/` instead of swallowing them silently. Helps users diagnose cases where an unreadable or dangling-symlink folder made the extension skip a valid TFVC root.
 
+### Removed
+- Dead local-shelf code on `WorkspaceState` (`saveLocalShelf`, `applyLocalShelf`, `listLocalShelves`, `deleteLocalShelf`) and the `.vscode-tfvc/shelves/` directory it managed. v0.3.7 stopped the silent fallback on shelve; today's Unreleased fixes cut the last two callers on unshelve and listShelvesets. Nothing references these methods anymore, and the "future explicit stash command" they were kept for is not in flight. If we ever build stash, it will be designed fresh. Existing `.vscode-tfvc/shelves/` folders on user machines are now inert — safe to delete manually.
+
 ## [0.3.7]
 
 ### Fixed

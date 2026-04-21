@@ -381,38 +381,4 @@ describe('WorkspaceState', () => {
         assert.strictEqual(fs.readFileSync(filePath, 'utf8'), originalContent);
     });
 
-    it('local shelf round-trip: save and apply', async () => {
-        const stateDir = path.join(tmpDir, '.vscode-tfvc');
-        fs.mkdirSync(stateDir, { recursive: true });
-        fs.writeFileSync(path.join(stateDir, 'baseline.json'), JSON.stringify({ scope, root: tmpDir, version: 0, items: [] }));
-        fs.writeFileSync(path.join(stateDir, 'pending.json'), '{"adds":[],"deletes":[],"checkouts":[]}');
-
-        const state = new WorkspaceState(tmpDir, scope);
-
-        // Create a file and mark as add
-        const filePath = path.join(tmpDir, 'shelved.txt');
-        fs.writeFileSync(filePath, 'shelved content');
-        state.markAdd([filePath]);
-
-        // Shelve locally
-        await state.saveLocalShelf('my-shelf', 'test comment');
-
-        // Verify shelf listing
-        const shelves = state.listLocalShelves();
-        assert.strictEqual(shelves.length, 1);
-        assert.strictEqual(shelves[0].name, 'my-shelf');
-        assert.strictEqual(shelves[0].comment, 'test comment');
-
-        // Clear and re-apply
-        state.clearAll();
-        await state.applyLocalShelf('my-shelf');
-
-        const changes = await state.getPendingChanges();
-        assert.strictEqual(changes.length, 1);
-        assert.strictEqual(changes[0].changeType, 'add');
-
-        // Delete shelf
-        state.deleteLocalShelf('my-shelf');
-        assert.strictEqual(state.listLocalShelves().length, 0);
-    });
 });

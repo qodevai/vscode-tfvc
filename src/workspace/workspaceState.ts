@@ -29,7 +29,6 @@ type LogFn = (message: string) => void;
 const STATE_DIR = '.vscode-tfvc';
 const BASELINE_FILE = 'baseline.json';
 const PENDING_FILE = 'pending.json';
-const SHELVES_DIR = 'shelves';
 
 export class WorkspaceState {
     private baseline: BaselineState;
@@ -534,111 +533,6 @@ export class WorkspaceState {
 
         this.saveBaseline();
         this.savePending();
-    }
-
-    // ── Local shelving ────────────────────────────────────────────────
-
-    /** Save pending changes to a local shelf (fallback when REST shelving isn't available). */
-    async saveLocalShelf(name: string, comment?: string): Promise<void> {
-        const changes = await this.getPendingChanges();
-        const shelfDir = path.join(this.stateDir, SHELVES_DIR);
-        fs.mkdirSync(shelfDir, { recursive: true });
-
-        const shelfData: {
-            name: string;
-            comment: string;
-            createdDate: string;
-            changes: Array<{ serverPath: string; localPath: string; changeType: string; content?: string }>;
-        } = {
-            name,
-            comment: comment || '',
-            createdDate: new Date().toISOString(),
-            changes: [],
-        };
-
-        for (const change of changes) {
-            const entry: typeof shelfData.changes[0] = {
-                serverPath: change.serverPath,
-                localPath: change.localPath,
-                changeType: change.changeType,
-            };
-
-            if (change.changeType !== 'delete' && fs.existsSync(change.localPath)) {
-                entry.content = fs.readFileSync(change.localPath).toString('base64');
-            }
-
-            shelfData.changes.push(entry);
-        }
-
-        const safeName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
-        fs.writeFileSync(
-            path.join(shelfDir, `${safeName}.json`),
-            JSON.stringify(shelfData, null, 2)
-        );
-    }
-
-    /** List locally saved shelves. */
-    listLocalShelves(): Array<{ name: string; comment: string; date: string }> {
-        const shelfDir = path.join(this.stateDir, SHELVES_DIR);
-        if (!fs.existsSync(shelfDir)) { return []; }
-
-        const results: Array<{ name: string; comment: string; date: string }> = [];
-        for (const file of fs.readdirSync(shelfDir)) {
-            if (!file.endsWith('.json')) { continue; }
-            try {
-                const data = JSON.parse(fs.readFileSync(path.join(shelfDir, file), 'utf8'));
-                results.push({
-                    name: data.name || file.replace('.json', ''),
-                    comment: data.comment || '',
-                    date: data.createdDate || '',
-                });
-            } catch { /* skip corrupt shelf files */ }
-        }
-        return results;
-    }
-
-    /** Apply a locally saved shelf. */
-    async applyLocalShelf(name: string): Promise<void> {
-        const shelfDir = path.join(this.stateDir, SHELVES_DIR);
-        const safeName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
-        const shelfPath = path.join(shelfDir, `${safeName}.json`);
-
-        if (!fs.existsSync(shelfPath)) {
-            throw new Error(`Local shelf "${name}" not found`);
-        }
-
-        const data = JSON.parse(fs.readFileSync(shelfPath, 'utf8'));
-
-        for (const change of data.changes || []) {
-            if (change.changeType === 'delete') {
-                this.pending.deletes.push(change.serverPath);
-            } else if (change.changeType === 'add') {
-                if (change.content) {
-                    fs.mkdirSync(path.dirname(change.localPath), { recursive: true });
-                    fs.writeFileSync(change.localPath, Buffer.from(change.content, 'base64'));
-                }
-                this.pending.adds.push(change.localPath);
-            } else {
-                // edit — write content and make writable
-                if (change.content) {
-                    fs.chmodSync(change.localPath, 0o644);
-                    fs.writeFileSync(change.localPath, Buffer.from(change.content, 'base64'));
-                }
-                this.pending.checkouts.push(change.localPath);
-            }
-        }
-
-        this.savePending();
-    }
-
-    /** Delete a locally saved shelf. */
-    deleteLocalShelf(name: string): void {
-        const shelfDir = path.join(this.stateDir, SHELVES_DIR);
-        const safeName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
-        const shelfPath = path.join(shelfDir, `${safeName}.json`);
-        if (fs.existsSync(shelfPath)) {
-            fs.unlinkSync(shelfPath);
-        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────
