@@ -87,9 +87,12 @@ export class TfvcRepository implements vscode.Disposable {
             }
             this._onDidChange.fire();
         } catch (err) {
-            logError(`Refresh failed: ${err}`);
-            this._pendingChanges = [];
-            this._onDidChange.fire();
+            // Transient failure reading local state (file I/O, hashing). Keep
+            // the last-known pending list so the SCM tree doesn't suddenly
+            // blank out during an edit — the user's actual changes haven't
+            // disappeared, we just couldn't re-compute the diff this tick.
+            // The next successful refresh recovers.
+            logError(`Refresh failed (keeping last-known pending changes): ${err}`);
         } finally {
             this.isRefreshing = false;
         }
