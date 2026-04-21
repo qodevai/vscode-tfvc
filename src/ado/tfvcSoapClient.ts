@@ -34,7 +34,7 @@ export interface PendChangeRequest {
     itemType: PendItemType;
     /** The download id returned by `upload.ashx`. 0 for Delete; the upload's `did` for Add/Edit. */
     downloadId: number;
-    /** Encoding flag — -2 for binary, a Windows code page for text. Use -2 unless the caller knows better. */
+    /** Encoding flag — -1 for binary, a Windows code page (e.g. 65001 for UTF-8) for text. Defaults to 65001. */
     encoding?: number;
     /** Rename target server path. Only for `Rename`. */
     target?: string;
@@ -42,8 +42,17 @@ export interface PendChangeRequest {
 
 export interface WorkspaceInfo {
     name: string;
+    /**
+     * Primary owner identifier. On cloud ADO this is the user's unique name
+     * (e.g. `user@tenant.com`); the server validates it against the PAT's
+     * identity and rejects the workspace with "OwnerName null" if it can't
+     * resolve. Use `getBotIdentity().uniqueName` when constructing.
+     */
     owner: string;
+    /** Display name shown in TFS UI. */
     ownerDisplayName: string;
+    /** Explicit unique-name hint ("owneruniq" attribute). Optional on on-prem servers that derive it from `owner`. */
+    ownerUniqueName?: string;
     computer: string;
     comment?: string;
 }
@@ -81,17 +90,17 @@ export class TfvcSoapClient {
      * (it may normalize them) for subsequent calls.
      */
     async createWorkspace(ws: WorkspaceInfo): Promise<WorkspaceInfo> {
-        const xml = this.envelope('CreateWorkspace', [
-            '<t:workspace>',
-            this.workspaceElement(ws),
-            '</t:workspace>',
-        ].join(''));
+        // TEE serialises CreateWorkspace as a single `<workspace>` element
+        // (lowercase) that carries the name/owner/etc. attributes directly.
+        // Do NOT nest a <Workspace> element inside — the server reads the
+        // outer element only and rejects empty OwnerName otherwise.
+        const xml = this.envelope('CreateWorkspace', this.workspaceElement(ws, 'workspace'));
         const response = await this.post(xml, 'CreateWorkspace');
-        const wsEl = /<Workspace\s+([^>]*?)(?:\/>|>)/i.exec(response);
-        if (!wsEl) {
+        const parsed = parseResultWorkspace(response, 'CreateWorkspaceResult');
+        if (!parsed) {
             throw new TfvcError(`CreateWorkspace: could not parse response: ${response.slice(0, 500)}`);
         }
-        return this.parseWorkspace(wsEl[1]);
+        return parsed;
     }
 
     /**
@@ -106,8 +115,7 @@ export class TfvcSoapClient {
         ].join(''));
         try {
             const response = await this.post(xml, 'QueryWorkspace');
-            const wsEl = /<Workspace\s+([^>]*?)(?:\/>|>)/i.exec(response);
-            return wsEl ? this.parseWorkspace(wsEl[1]) : undefined;
+            return parseResultWorkspace(response, 'QueryWorkspaceResult');
         } catch (err) {
             // "workspace does not exist" comes back as an HTTP 500 with a SOAP
             // fault; classifyHttpError stores the parsed fault text on `detail`,
@@ -246,17 +254,30 @@ export class TfvcSoapClient {
             // Try to pull the fault string so the caller gets a useful error.
             const fault = /<faultstring>([\s\S]*?)<\/faultstring>/i.exec(res.body);
             const detail = fault ? decodeXmlEntities(fault[1]) : res.body.slice(0, 500);
-            throw classifyHttpError(res.status, detail, `TFVC SOAP ${operation} failed`);
+            // For SOAP calls the server's faultstring is the diagnostic
+            // signal — classifyHttpError's user-friendly "server error (500)"
+            // hides it. Keep status + prefix but fold the detail into the
+            // message so stack traces and test output show what went wrong.
+            const err = classifyHttpError(res.status, detail, `TFVC SOAP ${operation} failed`);
+            if (detail && !err.message.includes(detail)) {
+                throw new TfvcError(
+                    `${err.message} (${operation}: ${detail})`,
+                    err.statusCode,
+                    detail,
+                );
+            }
+            throw err;
         }
         return res.body;
     }
 
-    private workspaceElement(ws: WorkspaceInfo): string {
+    private workspaceElement(ws: WorkspaceInfo, elementName = 'Workspace'): string {
         return [
-            '<t:Workspace',
+            `<t:${elementName}`,
             ` name="${escapeXmlAttr(ws.name)}"`,
             ` owner="${escapeXmlAttr(ws.owner)}"`,
             ` ownerdisp="${escapeXmlAttr(ws.ownerDisplayName)}"`,
+            ws.ownerUniqueName ? ` owneruniq="${escapeXmlAttr(ws.ownerUniqueName)}"` : '',
             ` computer="${escapeXmlAttr(ws.computer)}"`,
             ws.comment ? ` comment="${escapeXmlAttr(ws.comment)}"` : '',
             ' islocal="false"/>',
@@ -268,7 +289,7 @@ export class TfvcSoapClient {
             '<t:ChangeRequest',
             ` req="${c.changeType}"`,
             ` did="${c.downloadId}"`,
-            ` enc="${c.encoding ?? -2}"`,
+            ` enc="${c.encoding ?? 65001}"`,
             ` type="${c.itemType}"`,
             ' lock="Unchanged"',
             c.target ? ` target="${escapeXmlAttr(c.target)}"` : '',
@@ -279,15 +300,38 @@ export class TfvcSoapClient {
         return parts.join('');
     }
 
-    private parseWorkspace(attrs: string): WorkspaceInfo {
-        return {
-            name: extractAttr(attrs, 'name') || '',
-            owner: extractAttr(attrs, 'owner') || '',
-            ownerDisplayName: extractAttr(attrs, 'ownerdisp') || '',
-            computer: extractAttr(attrs, 'computer') || '',
-            comment: extractAttr(attrs, 'comment'),
-        };
+}
+
+/**
+ * Pull workspace-shaped attributes out of the server's response. TEE's
+ * server returns both `<{Operation}Result name="..." owner="..." …>` on
+ * modern endpoints and `<Workspace name="..." ...>` nested inside on
+ * older ones; accept whichever shows up.
+ */
+function parseResultWorkspace(xml: string, resultElement: string): WorkspaceInfo | undefined {
+    const resultRegex = new RegExp(`<${resultElement}\\s+([^>]*?)(?:\\/>|>)`, 'i');
+    const hit = resultRegex.exec(xml) ?? /<Workspace\s+([^>]*?)(?:\/>|>)/i.exec(xml);
+    if (!hit) { return undefined; }
+    const attrs = hit[1];
+    // If the result element is empty (no attributes), the server tucked the
+    // workspace inside a child element — dig one more level.
+    if (!/name=/i.test(attrs)) {
+        const nested = /<Workspace\s+([^>]*?)(?:\/>|>)/i.exec(xml);
+        if (!nested) { return undefined; }
+        return attrsToWorkspace(nested[1]);
     }
+    return attrsToWorkspace(attrs);
+}
+
+function attrsToWorkspace(attrs: string): WorkspaceInfo {
+    return {
+        name: extractAttr(attrs, 'name') || '',
+        owner: extractAttr(attrs, 'owner') || '',
+        ownerDisplayName: extractAttr(attrs, 'ownerdisp') || '',
+        ownerUniqueName: extractAttr(attrs, 'owneruniq'),
+        computer: extractAttr(attrs, 'computer') || '',
+        comment: extractAttr(attrs, 'comment'),
+    };
 }
 
 /**

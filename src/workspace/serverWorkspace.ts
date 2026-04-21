@@ -36,10 +36,16 @@ interface PersistedWorkspace {
 }
 
 export interface ServerIdentity {
-    /** e.g. "alice@corp.com" or a display name; passed to CreateWorkspace as `owner`. */
+    /**
+     * Primary owner identifier passed to CreateWorkspace as `owner`. Cloud
+     * ADO expects the unique name here (e.g. `alice@corp.com`); the server
+     * rejects with "Parameter name: OwnerName" if this can't be resolved.
+     */
     owner: string;
     /** Friendly name shown in TFS UI. */
     ownerDisplayName: string;
+    /** Unique-name hint ("owneruniq" attribute). Same as owner on cloud; useful when the primary identifier is a display name on on-prem. */
+    ownerUniqueName?: string;
 }
 
 /**
@@ -109,6 +115,7 @@ export class ServerWorkspace {
             name: targetName,
             owner: identity.owner,
             ownerDisplayName: identity.ownerDisplayName,
+            ownerUniqueName: identity.ownerUniqueName,
             computer: os.hostname(),
             comment: 'Managed by the VS Code TFVC extension — safe to delete.',
         });

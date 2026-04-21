@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `getBotIdentity()` now pins `/_apis/connectionData` to `api-version=1.0` instead of inheriting the client-wide default. Cloud ADO rejected 7.1 on this one endpoint with "resource is under preview … -preview flag must be supplied", which silently broke `tfvc.submitVerdict` on v0.3.5 because the response work item couldn't be assigned.
+- **`tfvc.shelve` now actually shelves on the server** (issue #10). Previous versions called REST endpoints that don't exist (`POST /_apis/tfvc/shelvesets` → HTTP 405); the silent "local shelf" fallback produced machine-local copies that teammates and code reviews couldn't see. The write path is now SOAP against `/VersionControl/v1.0/Repository.asmx`, routed through a lightweight server-registered workspace that the extension manages transparently.
+- **`tfvc.shelvesets` → Delete Shelveset** similarly now deletes on the server via SOAP instead of silently deleting a non-existent REST resource.
+
+### Changed
+- Local-shelf fallback no longer fires on server-shelve failure. Errors surface as toasts so the user can retry or check permissions. Local shelves (`.vscode-tfvc/shelves/`) remain in the codebase for a future explicit stash command; they just no longer masquerade as server shelvesets.
+- New `.vscode-tfvc/server-workspace.json` holds the server TFVC workspace name this install registers for shelving. Self-healing: if the server reports the workspace is gone (admin sweep, expiry), the extension recreates on the next shelve.
+
+### Added
+- `src/ado/tfvcSoapClient.ts` — SOAP client for the TFVC repository service (createWorkspace, pendChanges, shelve, deleteShelveset, …).
+- `src/ado/tfvcUploadClient.ts` — multipart upload helper for TFVC file content. 5 MB single-chunk cap; multi-chunk upload is future work.
+
+### Removed
+- `AdoRestClient.createShelveset` / `.deleteShelveset` — REST endpoints that don't exist on any ADO server. Replaced by the SOAP path above.
 
 ## [0.3.5]
 

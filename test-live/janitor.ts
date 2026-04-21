@@ -11,7 +11,8 @@
  *     concurrent run is never swept out from under it.
  */
 
-import { AdoRestClient } from '../src/ado/restClient';
+import { AdoRestClient, buildOnPremBase } from '../src/ado/restClient';
+import { TfvcSoapClient } from '../src/ado/tfvcSoapClient';
 import { loadLiveConfig } from './config';
 
 const STALE_THRESHOLD_MS = 60 * 60 * 1000; // 1h
@@ -25,6 +26,12 @@ async function main(): Promise<void> {
         cfg.baseUrl || '',
         cfg.collectionPath || '',
     );
+    // Same SOAP base the extension uses — shelveset delete is SOAP-only on
+    // real ADO (REST is read-only; the whole point of issue #10).
+    const soapBase = cfg.baseUrl
+        ? buildOnPremBase(cfg.baseUrl, cfg.collectionPath || '')
+        : `https://dev.azure.com/${encodeURIComponent(cfg.org)}`;
+    const soap = new TfvcSoapClient(soapBase, cfg.pat);
 
     const identity = await client.getBotIdentity();
     // listShelvesets(owner) filters server-side by display name. Scopes
@@ -43,7 +50,7 @@ async function main(): Promise<void> {
     let deleted = 0;
     for (const s of victims) {
         try {
-            await client.deleteShelveset(s.name, identity.displayName);
+            await soap.deleteShelveset(s.name, identity.displayName);
             console.log(`janitor: deleted ${s.name} (created ${s.createdDate})`);
             deleted++;
         } catch (err) {

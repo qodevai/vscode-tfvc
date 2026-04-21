@@ -22,16 +22,30 @@
  */
 
 import * as assert from 'assert';
+import * as os from 'os';
 import { describe, it, before } from 'node:test';
-import { AdoRestClient, CATEGORY_CODE_REVIEW_REQUEST, CATEGORY_CODE_REVIEW_RESPONSE } from '../src/ado/restClient';
-import { TfvcChangePayload } from '../src/ado/types';
-import { loadLiveConfig } from './config';
+import { AdoRestClient, CATEGORY_CODE_REVIEW_REQUEST, CATEGORY_CODE_REVIEW_RESPONSE, buildOnPremBase } from '../src/ado/restClient';
+import { TfvcSoapClient } from '../src/ado/tfvcSoapClient';
+import { TfvcUploadClient } from '../src/ado/tfvcUploadClient';
+import { loadLiveConfig, LiveConfig } from './config';
 
 let client: AdoRestClient;
+let soap: TfvcSoapClient;
+let upload: TfvcUploadClient;
+let cfg: LiveConfig;
+
+function soapBaseFor(cfg: LiveConfig): string {
+    return cfg.baseUrl
+        ? buildOnPremBase(cfg.baseUrl, cfg.collectionPath || '')
+        : `https://dev.azure.com/${encodeURIComponent(cfg.org)}`;
+}
 
 before(() => {
-    const cfg = loadLiveConfig();
+    cfg = loadLiveConfig();
     client = new AdoRestClient(cfg.org, cfg.pat, cfg.project, cfg.baseUrl || '', cfg.collectionPath || '');
+    const base = soapBaseFor(cfg);
+    soap = new TfvcSoapClient(base, cfg.pat);
+    upload = new TfvcUploadClient(base, cfg.pat);
 });
 
 describe('Live ADO: auth + identity', () => {
@@ -96,69 +110,108 @@ describe('Live ADO: WIQL IN GROUP filter', () => {
     });
 });
 
-describe('Live ADO: TFVC shelveset write round-trip', () => {
+describe('Live ADO: TFVC shelveset write round-trip (SOAP)', () => {
     // Run tag carries the GitHub run id (or "local") + a timestamp so
-    // concurrent workflows can't collide on shelveset names or sentinel
-    // paths, and a crashed run's leftovers are still trivially identifiable
-    // by the janitor.
+    // concurrent workflows can't collide on shelveset names, workspace
+    // names, or sentinel paths — and a crashed run's leftovers are still
+    // trivially identifiable by the janitor.
     const runTag = `${process.env.GITHUB_RUN_ID ?? 'local'}-${Date.now()}`;
     const shelveName = `tfvc-ci-${runTag}`;
+    const workspaceName = `tfvc-ci-ws-${runTag}`;
     let sentinelPath: string;
     let botName: string;
+    let botUnique: string;
 
     before(async () => {
-        const cfg = loadLiveConfig();
         sentinelPath = `$/${cfg.project}/.ci-shelveset-sentinels/run-${runTag}.txt`;
-        botName = (await client.getBotIdentity()).displayName;
+        const identity = await client.getBotIdentity();
+        botName = identity.displayName;
+        botUnique = identity.uniqueName;
     });
 
-    // SKIPPED — wiring the test caught a pre-existing bug: the ADO REST
-    // shelveset API is read-only. `POST /_apis/tfvc/shelvesets` returns
-    // HTTP 405 "does not support http method 'POST'" against cloud ADO,
-    // and the same is true for DELETE. The MS docs list only Get + List
-    // for Tfvc/Shelvesets:
-    //   https://learn.microsoft.com/en-us/rest/api/azure/devops/tfvc/shelvesets
-    //
-    // This means `AdoRestClient.createShelveset` / `.deleteShelveset` have
-    // never worked against a real server — the "local shelf fallback"
-    // noted in the 0.3.2 CHANGELOG is what masked it end-user-side. To
-    // make this test pass we'd need to either (a) implement shelveset
-    // create/delete via SOAP (TFVC web service), or (b) remove the REST
-    // methods from the client and document that server-side shelving
-    // isn't supported.
-    //
-    // Keeping the test body intact so it runs as soon as the underlying
-    // methods are fixed — delete `skip: ...` and it's ready to go.
-    it('creates a shelveset with one pending add, lists it, deletes it', { skip: 'AdoRestClient.createShelveset uses REST endpoints that do not exist; pre-existing bug, see comment' }, async () => {
-        const change: TfvcChangePayload = {
-            changeType: 'add',
-            item: { path: sentinelPath },
-            newContent: {
-                content: Buffer.from(`ci smoke run ${runTag} — safe to delete`).toString('base64'),
-                contentType: 'base64Encoded',
-            },
-        };
+    /**
+     * Drives the full SOAP shelve flow end-to-end:
+     *   CreateWorkspace → UploadFile → PendChanges → Shelve →
+     *   UndoPendingChanges → DeleteShelveset → DeleteWorkspace
+     *
+     * Every step operates on sandbox-local identifiers (names embed the
+     * run tag). The test cleans its own workspace on success; the janitor
+     * sweeps the shelveset if a run crashes between create and delete.
+     */
+    it('creates workspace, shelves a pending add, deletes shelveset + workspace', async () => {
+        const content = Buffer.from(`ci smoke run ${runTag} — safe to delete`, 'utf8');
 
-        let created = false;
+        let createdWorkspace: { name: string; owner: string } | undefined;
+        let createdShelveset = false;
         try {
-            await client.createShelveset(shelveName, [change], `CI smoke — ${runTag}`);
-            created = true;
+            const identity = await client.getBotIdentity();
+            const ws = await soap.createWorkspace({
+                name: workspaceName,
+                // On cloud ADO uniqueName is empty; the authenticatedUser.id
+                // GUID is the unambiguous identity. On-prem AD / TFS may
+                // return a DOMAIN\user uniqueName instead, which the server
+                // canonicalises on first use — we read `ws.owner` back rather
+                // than trusting our own input for subsequent calls.
+                owner: identity.uniqueName || identity.id,
+                ownerDisplayName: botName,
+                ownerUniqueName: botUnique || identity.id,
+                computer: `ci-${os.hostname()}`,
+                comment: 'CI smoke — safe to delete',
+            });
+            createdWorkspace = { name: ws.name, owner: ws.owner };
 
-            const after = await client.listShelvesets();
+            // PendChanges BEFORE upload: the upload endpoint requires the
+            // item to already be checked out (in the workspace's pending
+            // queue). Sending PendAdd with did=0 registers the entry; the
+            // subsequent upload attaches the content server-side.
+            await soap.pendChanges(ws.name, ws.owner, [{
+                serverPath: sentinelPath,
+                changeType: 'Add',
+                itemType: 'File',
+                downloadId: 0,
+            }]);
+
+            const uploaded = await upload.uploadFile({
+                serverPath: sentinelPath,
+                workspaceName: ws.name,
+                workspaceOwner: ws.owner,
+                content,
+            });
+            assert.ok(uploaded.hash.length > 0, 'upload response should carry a hash');
+
+            const failures = await soap.shelve(
+                ws.name,
+                ws.owner,
+                [sentinelPath],
+                { name: shelveName, owner: ws.owner, ownerDisplayName: botName, comment: 'CI smoke' },
+                /* replace */ true,
+            );
+            assert.deepStrictEqual(
+                failures.filter(f => f.severity === 'Error'),
+                [],
+                `shelve returned fatal failures: ${JSON.stringify(failures)}`,
+            );
+            createdShelveset = true;
+
+            await soap.undoPendingChanges(ws.name, ws.owner, [sentinelPath]);
+
+            const listed = await client.listShelvesets(botName);
             assert.ok(
-                after.some(s => s.name === shelveName),
-                `created shelveset "${shelveName}" should appear in listShelvesets`,
+                listed.some(s => s.name === shelveName),
+                `shelveset "${shelveName}" should appear in listShelvesets after Shelve`,
             );
         } finally {
-            if (created) {
-                // Best-effort cleanup; the janitor sweeps leftovers on the next run.
-                await client.deleteShelveset(shelveName, botName).catch(() => {});
+            if (createdShelveset && createdWorkspace) {
+                await soap.deleteShelveset(shelveName, createdWorkspace.owner).catch(() => {});
+            }
+            if (createdWorkspace) {
+                await soap.deleteWorkspace(createdWorkspace.name, createdWorkspace.owner).catch(() => {});
             }
         }
 
-        const afterDelete = await client.listShelvesets();
+        const after = await client.listShelvesets(botName);
         assert.ok(
-            !afterDelete.some(s => s.name === shelveName),
+            !after.some(s => s.name === shelveName),
             `shelveset "${shelveName}" should be gone after delete`,
         );
     });

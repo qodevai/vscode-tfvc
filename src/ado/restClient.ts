@@ -55,6 +55,7 @@ interface ConnectionData {
         id: string;
         providerDisplayName?: string;
         displayName?: string;
+        uniqueName?: string;
     };
 }
 
@@ -65,7 +66,7 @@ export class AdoRestClient {
     private readonly project: string;
     readonly scope: string;
 
-    private identityCache: { id: string; displayName: string } | undefined;
+    private identityCache: { id: string; displayName: string; uniqueName: string } | undefined;
     private readonly categoryCache = new Map<string, string>();
 
     constructor(
@@ -273,23 +274,11 @@ export class AdoRestClient {
         }));
     }
 
-    // ── Shelveset creation / deletion ─────────────────────────────────
-
-    /** Create a shelveset via REST. May not be available on all server versions. */
-    async createShelveset(name: string, changes: CreateChangesetRequest['changes'], comment?: string): Promise<void> {
-        const body = {
-            name,
-            comment: comment || '',
-            changes,
-        };
-        await this.post<unknown>('/_apis/tfvc/shelvesets', body);
-    }
-
-    /** Delete a shelveset. */
-    async deleteShelveset(name: string, owner: string): Promise<void> {
-        const shelveId = encodeURIComponent(`${name};${owner}`);
-        await this.del(`/_apis/tfvc/shelvesets/${shelveId}`);
-    }
+    // Shelveset create/delete intentionally NOT implemented here: ADO's
+    // REST API for Tfvc/Shelvesets is read-only (see
+    // https://learn.microsoft.com/en-us/rest/api/azure/devops/tfvc/shelvesets).
+    // Write paths live in `TfvcSoapClient` — the TFVC SOAP repository service
+    // is the only surface that supports Shelve / DeleteShelveset.
 
     // ── File content ────────────────────────────────────────────────────
 
@@ -476,7 +465,7 @@ export class AdoRestClient {
 
     // ── Identity ────────────────────────────────────────────────────────
 
-    async getBotIdentity(): Promise<{ id: string; displayName: string }> {
+    async getBotIdentity(): Promise<{ id: string; displayName: string; uniqueName: string }> {
         if (this.identityCache) { return this.identityCache; }
         // /_apis/connectionData has been stable at api-version 1.0 since TFS days;
         // cloud ADO rejects the client's default 7.1 on this endpoint with
@@ -487,6 +476,11 @@ export class AdoRestClient {
         this.identityCache = {
             id: String(user.id),
             displayName: String(user.providerDisplayName || user.displayName || ''),
+            // The "unique name" is the thing cloud ADO uses as the owner
+            // identifier on SOAP calls (e.g. CreateWorkspace's `owner`).
+            // On cloud it's usually "user@tenant"; on on-prem it's "DOMAIN\\user".
+            // Falls back to displayName if the server didn't populate it.
+            uniqueName: String(user.uniqueName || user.displayName || ''),
         };
         return this.identityCache;
     }
