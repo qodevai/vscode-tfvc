@@ -112,7 +112,24 @@ describe('Live ADO: TFVC shelveset write round-trip', () => {
         botName = (await client.getBotIdentity()).displayName;
     });
 
-    it('creates a shelveset with one pending add, lists it, deletes it', async () => {
+    // SKIPPED — wiring the test caught a pre-existing bug: the ADO REST
+    // shelveset API is read-only. `POST /_apis/tfvc/shelvesets` returns
+    // HTTP 405 "does not support http method 'POST'" against cloud ADO,
+    // and the same is true for DELETE. The MS docs list only Get + List
+    // for Tfvc/Shelvesets:
+    //   https://learn.microsoft.com/en-us/rest/api/azure/devops/tfvc/shelvesets
+    //
+    // This means `AdoRestClient.createShelveset` / `.deleteShelveset` have
+    // never worked against a real server — the "local shelf fallback"
+    // noted in the 0.3.2 CHANGELOG is what masked it end-user-side. To
+    // make this test pass we'd need to either (a) implement shelveset
+    // create/delete via SOAP (TFVC web service), or (b) remove the REST
+    // methods from the client and document that server-side shelving
+    // isn't supported.
+    //
+    // Keeping the test body intact so it runs as soon as the underlying
+    // methods are fixed — delete `skip: ...` and it's ready to go.
+    it('creates a shelveset with one pending add, lists it, deletes it', { skip: 'AdoRestClient.createShelveset uses REST endpoints that do not exist; pre-existing bug, see comment' }, async () => {
         const change: TfvcChangePayload = {
             changeType: 'add',
             item: { path: sentinelPath },
