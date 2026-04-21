@@ -1,0 +1,39 @@
+name: Live smoke
+
+on:
+  # Nightly at 06:00 UTC — off-hours for EU contributors.
+  schedule:
+    - cron: '0 6 * * *'
+  # Manual trigger from the Actions tab — use after merging a PR that
+  # touches AdoRestClient or the server-facing surface.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-smoke
+  # Never run two smokes against the sandbox concurrently — they share
+  # server state and a single PAT rate-limit budget.
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Gate on whichever branch pushed or dispatched. Cron always uses
+    # main; that's what we want for "is the released extension still
+    # working against the real server?"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Run live smoke suite
+        env:
+          TFVC_E2E_ORG: ${{ vars.TFVC_E2E_ORG }}
+          TFVC_E2E_PROJECT: ${{ vars.TFVC_E2E_PROJECT }}
+          TFVC_E2E_PAT: ${{ secrets.TFVC_E2E_PAT }}
+        run: npm run test:live

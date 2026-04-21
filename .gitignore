@@ -1,6 +1,7 @@
 out/
 out-test/
 out-e2e/
+out-live/
 node_modules/
 *.vsix
 .vscode-test/
