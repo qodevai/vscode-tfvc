@@ -369,6 +369,7 @@
     "test": "tsc -p tsconfig.test.json && node --test out-test/test/*.test.js",
     "test:e2e": "tsc -p tsconfig.e2e.json && tsc -p ./ && node out-e2e/runTest.js",
     "test:live": "tsc -p tsconfig.live.json && node --test out-live/test-live/*.test.js",
+    "test:live:janitor": "tsc -p tsconfig.live.json && node out-live/test-live/janitor.js",
     "package": "vsce package --no-dependencies"
   },
   "devDependencies": {
