@@ -4,10 +4,13 @@
 .claude/**
 src/**
 test/**
+test-e2e/**
 out-test/**
+out-e2e/**
 node_modules/**
 tsconfig.json
 tsconfig.test.json
+tsconfig.e2e.json
 esbuild.mjs
 .github/**
 .gitignore

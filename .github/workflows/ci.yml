@@ -19,6 +19,13 @@ jobs:
       - run: npm ci
       - run: npm run compile
       - run: npm test
+      # Extension-host e2e — launches a real VS Code under xvfb. Needs a
+      # display server because @vscode/test-electron spawns the Electron
+      # binary, which initializes a window even when no UI is shown.
+      - name: Install xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+      - name: Run e2e (extension host)
+        run: xvfb-run -a npm run test:e2e
       - run: npx @vscode/vsce package --no-dependencies --out tfvc.vsix
       - uses: actions/upload-artifact@v4
         with:
