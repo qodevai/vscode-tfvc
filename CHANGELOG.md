@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `tfvc.strictSSL` setting (default `true`) — set to `false` to trust self-signed or internal-CA certificates on on-prem Azure DevOps Server. Disables TLS verification entirely, so only flip on networks you trust.
 - `tfvc.proxy` setting — HTTP proxy URL to tunnel ADO requests through (e.g. `http://user:pass@proxy.corp:8080`). Leave empty to fall back to the `HTTPS_PROXY` / `HTTP_PROXY` environment variables, or to connect directly. Handles both HTTPS (via CONNECT tunnel) and HTTP (absolute-URL forwarding); Basic auth is read from embedded credentials in the URL.
+- `tfvc.adoApiVersion` setting — override the ADO REST `api-version` query parameter. Leave empty to keep the defaults (7.1 for cloud, 6.0 for on-prem). Older TFS installs that haven't been upgraded past a particular API revision can downgrade (TFS 2018: `4.1`; TFS 2019: `5.0` / `5.1`).
 
 ## [0.3.4]
 

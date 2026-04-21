@@ -313,6 +313,11 @@
           "default": "",
           "description": "On-prem TFS collection path (e.g. '/tfs/DefaultCollection'). Leave empty for cloud."
         },
+        "tfvc.adoApiVersion": {
+          "type": "string",
+          "default": "",
+          "description": "Override the ADO REST api-version query parameter. Leave empty to auto-select: 6.0 for on-prem, 7.1 for cloud. Older TFS installs may need to downgrade (TFS 2018: '4.1', TFS 2019: '5.0'/'5.1')."
+        },
         "tfvc.autoCheckout": {
           "type": "string",
           "enum": [
