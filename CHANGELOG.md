@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- SOAP clients (`AdoSoapClient` for code-review discussions, `TfvcSoapClient` for workspace + shelveset writes) now share a `SoapClientBase` that owns envelope construction, Basic auth, POST, and SOAP-fault parsing. `AdoSoapClient` gains two improvements from the consolidation: the SOAPAction header is now quoted per the SOAP 1.1 spec (was unquoted — some older on-prem TFS installs are fussier about this), and HTTP errors now fold the server's `<faultstring>` into the thrown message instead of being swallowed behind a generic "server error (500)".
 - `initRestClient()` invocations are now serialized via a promise chain. Rapid config or PAT changes previously could interleave two reinit runs: both would dispose scoped state, both would create fresh clients, and the second would leak the first's repo into `repoDisposables`. Chaining ensures each run reads fresh config when its turn comes, and a failure no longer stalls subsequent runs.
 - `TfvcRepository` no longer imports `vscode` directly. The change-event emitter is now passed in via the constructor (`ChangeEmitter` interface — structurally compatible with `vscode.EventEmitter<void>`), so the class can be unit-tested without a vscode runtime. `outputChannel.ts` lazy-loads `vscode` and falls back to `console.error` when it's not available, for the same reason.
 
