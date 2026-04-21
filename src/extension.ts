@@ -296,6 +296,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }),
     );
 
+    // Client re-init runs asynchronously from config/PAT change events.
+    // Failures previously only hit the output channel, so a bad URL or
+    // unreachable on-prem server left the extension in a stale state with
+    // no visible cue. Surface the error as a warning toast pointing the
+    // user at their settings.
+    function reinitOrWarn(cause: string): void {
+        initRestClient().catch(err => {
+            logError(`${cause} re-init failed: ${err}`);
+            const detail = err instanceof Error ? err.message : String(err);
+            vscode.window.showWarningMessage(
+                `TFVC: Failed to reinitialize after ${cause.toLowerCase()} change — ${detail}. Check tfvc.* settings or run "TFVC: Set PAT".`
+            );
+        });
+    }
+
     // Listeners are registered before the workspace-root early return so
     // an unconfigured extension can come alive once the user saves settings
     // (or sets a PAT) without requiring a VS Code reload.
@@ -310,7 +325,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 e.affectsConfiguration('tfvc.strictSSL') ||
                 e.affectsConfiguration('tfvc.proxy')
             ) {
-                initRestClient().catch(err => logError(`Config-change re-init failed: ${err}`));
+                reinitOrWarn('Config');
             }
             if (e.affectsConfiguration('tfvc.autoRefreshInterval') && repo) {
                 const interval = vscode.workspace.getConfiguration('tfvc').get<number>('autoRefreshInterval', 0);
@@ -319,7 +334,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }),
         context.secrets.onDidChange(e => {
             if (e.key === 'tfvc.pat') {
-                initRestClient().catch(err => logError(`PAT-change re-init failed: ${err}`));
+                reinitOrWarn('PAT');
             }
         }),
     );
