@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Auto-checkout `onEdit` path no longer swallows unexpected promise rejections. The inner `tryCheckout` already catches its own failures via `notifyFailure`, but the outer `.catch(() => {})` would have silently hidden any future regression where an error escaped. Now logs to the output channel and still routes through the deduped toast.
 - `TfvcRepository.refresh()` no longer clears the pending-change list on a transient read failure. Previously, if `getPendingChanges()` threw (disk hiccup, permission glitch while hashing), the SCM tree blanked out and made it look like the user had lost their work. The in-memory list is now preserved until a successful refresh replaces it.
 - Review-diff 404 detection in `ReviewFileContentProvider` now checks `TfvcError.statusCode === 404` instead of pattern-matching the error message. Brittle substring matches (`msg.includes('404')`) previously risked either missing real 404s when the message format shifted, or swallowing unrelated errors whose text happened to contain "404".
+- `syncBaseline` now reports a conflict when a server-side-deleted file cannot be unlinked locally (file in use, permission denied), instead of silently ignoring the failure, removing the baseline entry, and reporting `action: 'deleting'`. Previously the file stayed on disk but vanished from every subsequent sync's bookkeeping — quiet desync between tree and baseline.
 
 ## [0.3.7]
 

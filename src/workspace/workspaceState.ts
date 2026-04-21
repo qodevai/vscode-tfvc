@@ -297,15 +297,27 @@ export class WorkspaceState {
         for (const item of this.baseline.items) {
             if (pathSet && !pathSet.has(pathKey(item.serverPath))) { continue; }
             if (!serverPaths.has(pathKey(item.serverPath))) {
-                // File deleted on server
+                // File deleted on server. If the local unlink fails (file in
+                // use, permission denied), report a conflict and leave the
+                // baseline entry in place — removing it would hide the local
+                // file from every subsequent sync, and the "deleting" result
+                // would be a lie.
+                let unlinkOk = true;
                 try {
                     if (fs.existsSync(item.localPath)) {
                         fs.chmodSync(item.localPath, 0o644);
                         fs.unlinkSync(item.localPath);
                     }
-                } catch { /* ignore */ }
-                results.push({ path: item.localPath, action: 'deleting' });
-                toRemove.push(item);
+                } catch (err) {
+                    unlinkOk = false;
+                    this.log(`Could not delete ${item.localPath} during sync (server-side delete): ${err}`);
+                }
+                if (unlinkOk) {
+                    results.push({ path: item.localPath, action: 'deleting' });
+                    toRemove.push(item);
+                } else {
+                    results.push({ path: item.localPath, action: 'conflict' });
+                }
             }
         }
 
