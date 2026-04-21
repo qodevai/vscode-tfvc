@@ -4,6 +4,7 @@ import { TfvcRepository, PendingChange } from './tfvcRepository';
 import { samePath } from './workspace/pathMapping';
 import { parseWorkItemIds } from './workItemParsing';
 import { validateShelvesetName } from './shelvesetName';
+import { metadataFor } from './changeTypeMetadata';
 
 const TFVC_SCHEME = 'tfvc';
 
@@ -69,39 +70,15 @@ export class TfvcSCMProvider implements vscode.Disposable {
     }
 
     private getDecorations(change: PendingChange): vscode.SourceControlResourceDecorations {
-        switch (change.changeType) {
-            case 'add':
-                return {
-                    iconPath: new vscode.ThemeIcon('diff-added', new vscode.ThemeColor('gitDecoration.addedResourceForeground')),
-                    tooltip: 'Added',
-                };
-            case 'delete':
-                return {
-                    iconPath: new vscode.ThemeIcon('diff-removed', new vscode.ThemeColor('gitDecoration.deletedResourceForeground')),
-                    tooltip: 'Deleted',
-                    strikeThrough: true,
-                };
-            case 'edit':
-                return {
-                    iconPath: new vscode.ThemeIcon('diff-modified', new vscode.ThemeColor('gitDecoration.modifiedResourceForeground')),
-                    tooltip: 'Edited',
-                };
-            case 'rename':
-                return {
-                    iconPath: new vscode.ThemeIcon('diff-renamed', new vscode.ThemeColor('gitDecoration.renamedResourceForeground')),
-                    tooltip: 'Renamed',
-                };
-            case 'merge':
-                return {
-                    iconPath: new vscode.ThemeIcon('warning', new vscode.ThemeColor('gitDecoration.conflictingResourceForeground')),
-                    tooltip: 'Conflict',
-                };
-            default:
-                return {
-                    iconPath: new vscode.ThemeIcon('diff-modified'),
-                    tooltip: change.changeType,
-                };
-        }
+        const info = metadataFor(change.changeType);
+        return {
+            iconPath: new vscode.ThemeIcon(
+                info.themeIcon,
+                info.themeColor ? new vscode.ThemeColor(info.themeColor) : undefined,
+            ),
+            tooltip: info.label,
+            strikeThrough: info.strikeThrough,
+        };
     }
 
     // --- Command handlers ---
