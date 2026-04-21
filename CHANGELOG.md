@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `TfvcRepository` no longer imports `vscode` directly. The change-event emitter is now passed in via the constructor (`ChangeEmitter` interface — structurally compatible with `vscode.EventEmitter<void>`), so the class can be unit-tested without a vscode runtime. `outputChannel.ts` lazy-loads `vscode` and falls back to `console.error` when it's not available, for the same reason.
 
 ### Added
+- `test/shelvesetName.test.ts` — 7 tests covering the shelveset-name validation rules (empty / whitespace / leading-dash / shell-metacharacter / unicode-OK). The validator is now `src/shelvesetName.ts`, exported for future programmatic callers and the existing input-box use.
 - `test/tfvcRepository.test.ts` — 27 unit tests covering `TfvcRepository`: the `refresh` preservation contract from the silent-fail sweep, `shelve` / `unshelve` end-to-end with mocked clients, `checkin` payload construction and baseline update, thin REST/SOAP delegations, and state-mutation helpers.
 
 ### Fixed
