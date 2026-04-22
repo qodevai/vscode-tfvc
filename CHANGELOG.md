@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1]
+
 ### Fixed
 - "Not configured" error messages now mention `tfvc.adoBaseUrl` as an alternative to `tfvc.adoOrg` for on-prem installs. Previously both the SCM error toast (`src/extension.ts`) and the review-diff placeholder text (`src/providers/fileContent.ts`) told users to set `tfvc.adoOrg`, sending on-prem users chasing a field they don't need — the underlying check has always accepted either.
 
