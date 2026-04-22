@@ -168,8 +168,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     function notConfigured(): void {
         vscode.window.showErrorMessage(
-            'TFVC: Not configured. Run "TFVC: Set PAT", configure tfvc.adoOrg and tfvc.adoProject in settings, ' +
-            'then run "TFVC: Initialize Workspace".'
+            'TFVC: Not configured. Run "TFVC: Set PAT", set tfvc.adoProject and either tfvc.adoOrg (cloud) ' +
+            'or tfvc.adoBaseUrl (on-prem) in settings, then run "TFVC: Initialize Workspace".'
         );
     }
 
