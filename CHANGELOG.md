@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0]
+
 ### Changed
 - `src/extension.ts` trimmed from 445 to 350 lines by extracting review-command registrations into `src/reviewCommands.ts` and workspace-root detection into `src/workspaceDetect.ts`. Both are dependency-light and easier to reason about in isolation. Activation flow in `extension.ts` is now the coordination it's supposed to be, not buried under inline command bodies.
 - SOAP clients (`AdoSoapClient` for code-review discussions, `TfvcSoapClient` for workspace + shelveset writes) now share a `SoapClientBase` that owns envelope construction, Basic auth, POST, and SOAP-fault parsing. `AdoSoapClient` gains two improvements from the consolidation: the SOAPAction header is now quoted per the SOAP 1.1 spec (was unquoted — some older on-prem TFS installs are fussier about this), and HTTP errors now fold the server's `<faultstring>` into the thrown message instead of being swallowed behind a generic "server error (500)".
