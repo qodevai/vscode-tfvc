@@ -32,7 +32,7 @@ export class ReviewFileContentProvider implements vscode.TextDocumentContentProv
 
     async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
         if (!this.restClient) {
-            return '// ADO REST client not configured. Set tfvc.pat and tfvc.adoOrg in settings.';
+            return '// ADO REST client not configured. Set tfvc.pat and either tfvc.adoOrg (cloud) or tfvc.adoBaseUrl (on-prem) in settings.';
         }
 
         const cacheKey = uri.toString();
