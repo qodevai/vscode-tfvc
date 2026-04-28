@@ -252,6 +252,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // no visible cue. Surface the error as a warning toast pointing the
     // user at their settings.
     function reinitOrWarn(cause: string): void {
+        // Activation may have early-returned without resolving a workspace
+        // root (no .vscode-tfvc/ + no tfvc.adoProject at activation time).
+        // Now that the user has changed config or set a PAT, retry the
+        // root resolution so the extension can come fully alive without
+        // requiring a window reload — otherwise initRestClient builds the
+        // REST client but never creates `repo`/`scmProvider`, and any TFVC
+        // command shows a misleading "Not configured" toast.
+        if (!root) {
+            const tfvcRoots = findTfvcRoots();
+            const folders = vscode.workspace.workspaceFolders;
+            root = tfvcRoots[0] ?? folders?.[0]?.uri.fsPath;
+            if (root) {
+                outputChannel.appendLine(`TFVC workspace root resolved on ${cause.toLowerCase()} change: ${root}`);
+            }
+        }
         initRestClient().catch(err => {
             logError(`${cause} re-init failed: ${err}`);
             const detail = err instanceof Error ? err.message : String(err);
