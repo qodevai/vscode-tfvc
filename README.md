@@ -26,8 +26,8 @@ Works with both Azure DevOps Services (cloud) and Azure DevOps Server (on-prem).
 
 - A TFVC project hosted on **Azure DevOps Services** (`dev.azure.com`) or **Azure DevOps Server** (on-prem).
 - A **Personal Access Token (PAT)** with these scopes:
-  - **Code → Read & write** (for source control operations)
-  - **Code (status)** — if you use review verdicts
+  - **Code → Read & write** (for source control operations, including shelvesets)
+  - **Work Items → Read & write** (for code reviews and verdict submission — review requests and responses are ADO work items)
 - VS Code 1.85.0 or newer.
 
 ## Quick Start
