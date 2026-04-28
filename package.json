@@ -363,14 +363,18 @@
     }
   },
   "scripts": {
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
+    "compile": "run-p compile:*",
+    "compile:typecheck": "tsc --noEmit -p ./",
+    "compile:bundle": "node esbuild.mjs",
+    "watch": "run-p watch:*",
+    "watch:typecheck": "tsc --noEmit --watch -p ./",
+    "watch:bundle": "node esbuild.mjs --watch",
     "lint": "eslint src --ext ts",
     "test": "tsc -p tsconfig.test.json && node --test out-test/test/*.test.js",
-    "test:e2e": "tsc -p tsconfig.e2e.json && tsc -p ./ && node out-e2e/runTest.js",
+    "test:e2e": "tsc -p tsconfig.e2e.json && node esbuild.mjs && node out-e2e/runTest.js",
     "test:live": "tsc -p tsconfig.live.json && node --test out-live/test-live/*.test.js",
     "test:live:janitor": "tsc -p tsconfig.live.json && node out-live/test-live/janitor.js",
-    "package": "vsce package --no-dependencies"
+    "package": "node esbuild.mjs --production && vsce package --no-dependencies"
   },
   "devDependencies": {
     "@types/glob": "^8.1.0",
@@ -379,8 +383,10 @@
     "@types/vscode": "^1.85.0",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.9.0",
+    "esbuild": "^0.28.0",
     "glob": "^13.0.6",
     "mocha": "^11.7.5",
+    "npm-run-all2": "^8.0.4",
     "typescript": "^5.3.3"
   }
 }
