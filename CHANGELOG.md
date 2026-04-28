@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2]
+
 ### Fixed
 - Extension recovers from an empty-then-configured activation without a window reload. Previously, if a user activated the extension before setting `tfvc.adoProject` (and without a `.vscode-tfvc/` folder), `activate()` early-returned without resolving a workspace root. After the user filled in settings, the config-change listener re-built the REST client but `root` stayed undefined, so `repo`/`scmProvider` were never created — every TFVC command then showed a misleading "Not configured" toast even though all settings were correct. The recovery now retries the root resolution from the config/PAT-change listener so the extension comes fully alive on the spot.
+
+### Documentation
+- README PAT scope corrected: review verdicts require **Work Items: Read & write** (review requests/responses are work items, transitioned via `_apis/wit/workitems`). The previous **Code (status)** mention was for Git commit statuses — an API the extension never calls.
 
 ## [0.4.1]
 
