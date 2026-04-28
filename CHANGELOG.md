@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Bundle the extension with esbuild. `out/extension.js` is now a single ~64 KB minified file replacing the per-file `tsc` emit. `npm run compile` and `npm run watch` fan out into parallel typecheck (`tsc --noEmit`) + bundle (`node esbuild.mjs`) processes via `npm-run-all2`, matching the official VS Code extension sample so editor type errors and bundle errors surface side-by-side. `npm run package` runs the production esbuild step before `vsce package`. The published `.vsix` shrinks to 7 files / 35 KB (from a multi-file `out/` emit) and no longer ships uncompiled source. Lays groundwork for adding `fast-xml-parser` as a runtime dep in the upcoming SOAP-mostly migration without breaking the zero-shipped-runtime-deps posture.
+
 ## [0.4.2]
 
 ### Fixed
