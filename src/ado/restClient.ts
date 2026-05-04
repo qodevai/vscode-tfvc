@@ -24,8 +24,14 @@ import {
     AdoWorkItemResponse,
     AdoWorkItemTypeCategory,
 } from './types';
-import { httpRequest, httpRequestBuffer, HttpResponse, HttpBufferResponse, buildBasicAuthHeader } from './httpClient';
-import { classifyHttpError, TfvcError } from '../errors';
+import {
+    HttpClient,
+    HttpResponse,
+    HttpBufferResponse,
+    buildBasicAuthHeader,
+    classifyHttpError,
+    TfvcError,
+} from '@qodevai/tfs-soap/core';
 
 const MAX_BATCH_SIZE = 200;
 
@@ -60,6 +66,7 @@ interface ConnectionData {
 }
 
 export class AdoRestClient {
+    private readonly http: HttpClient;
     private readonly base: string;
     private readonly apiVersion: string;
     private readonly authHeader: string;
@@ -70,6 +77,7 @@ export class AdoRestClient {
     private readonly categoryCache = new Map<string, string>();
 
     constructor(
+        http: HttpClient,
         org: string,
         pat: string,
         project: string,
@@ -77,6 +85,7 @@ export class AdoRestClient {
         collectionPath = '',
         apiVersionOverride = ''
     ) {
+        this.http = http;
         // Validate inputs at the boundary so callers get a clear error instead
         // of later HTTP failures against a bogus URL like
         // "https://dev.azure.com//_apis/...".
@@ -107,7 +116,7 @@ export class AdoRestClient {
     // ── HTTP helpers ─────────────────────────────────────────────────────
 
     private async request(url: string, method = 'GET', headers?: Record<string, string>, body?: string): Promise<HttpResponse> {
-        return httpRequest(url, {
+        return this.http.request(url, {
             method,
             headers: { 'Authorization': this.authHeader, ...headers },
             body,
@@ -161,7 +170,7 @@ export class AdoRestClient {
     }
 
     private async requestBuffer(url: string, method = 'GET', headers?: Record<string, string>): Promise<HttpBufferResponse> {
-        return httpRequestBuffer(url, {
+        return this.http.requestBuffer(url, {
             method,
             headers: { 'Authorization': this.authHeader, ...headers },
         });

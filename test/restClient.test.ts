@@ -3,7 +3,9 @@ import * as http from 'http';
 import { describe, it, before, after } from 'node:test';
 import { AdoRestClient, buildOnPremBase } from '../src/ado/restClient';
 import { ReviewVerdict } from '../src/ado/types';
-import { TfvcError } from '../src/errors';
+import { HttpClient, TfvcError } from '@qodevai/tfs-soap/core';
+
+const httpClient = new HttpClient();
 
 interface CapturedRequest {
     method: string;
@@ -48,43 +50,43 @@ after(() => {
 describe('AdoRestClient constructor (I20)', () => {
     it('requires a PAT', () => {
         assert.throws(
-            () => new AdoRestClient('myorg', '', 'MyProject'),
+            () => new AdoRestClient(httpClient,'myorg', '', 'MyProject'),
             (err: Error) => err instanceof TfvcError && /PAT is required/.test(err.message),
         );
     });
 
     it('requires a project', () => {
         assert.throws(
-            () => new AdoRestClient('myorg', 'pat', ''),
+            () => new AdoRestClient(httpClient,'myorg', 'pat', ''),
             (err: Error) => err instanceof TfvcError && /project is required/.test(err.message),
         );
     });
 
     it('requires either org or baseUrl', () => {
         assert.throws(
-            () => new AdoRestClient('', 'pat', 'MyProject'),
+            () => new AdoRestClient(httpClient,'', 'pat', 'MyProject'),
             (err: Error) => err instanceof TfvcError && /either org.*or baseUrl/.test(err.message),
         );
     });
 
     it('rejects a baseUrl without http(s) scheme', () => {
         assert.throws(
-            () => new AdoRestClient('', 'pat', 'MyProject', 'tfs.example.com'),
+            () => new AdoRestClient(httpClient,'', 'pat', 'MyProject', 'tfs.example.com'),
             (err: Error) => err instanceof TfvcError && /must start with http\(s\):\/\//.test(err.message),
         );
     });
 
     it('accepts http and https baseUrls', () => {
         assert.doesNotThrow(() =>
-            new AdoRestClient('', 'pat', 'MyProject', 'http://tfs.example.com'));
+            new AdoRestClient(httpClient,'', 'pat', 'MyProject', 'http://tfs.example.com'));
         assert.doesNotThrow(() =>
-            new AdoRestClient('', 'pat', 'MyProject', 'https://tfs.example.com'));
+            new AdoRestClient(httpClient,'', 'pat', 'MyProject', 'https://tfs.example.com'));
     });
 
     it('URL-encodes the org name so special characters do not break the URL', () => {
         // Org names with spaces or other URL-unsafe chars must be encoded so the
         // resulting base URL is valid.
-        const client = new AdoRestClient('my org', 'pat', 'MyProject');
+        const client = new AdoRestClient(httpClient,'my org', 'pat', 'MyProject');
         assert.strictEqual(client.scope, '$/MyProject');
         // Indirect check: a subsequent API call would target an encoded host.
         // We can't easily hit the HTTP layer here without a real server, so we
@@ -97,7 +99,7 @@ describe('AdoRestClient api-version override (v0.3.5)', () => {
     it('defaults to 6.0 on-prem / 7.1 cloud when override is empty', async () => {
         captured = [];
         responder = () => ({ body: JSON.stringify({ value: [] }) });
-        const onprem = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '');
+        const onprem = new AdoRestClient(httpClient,'', 'pat', 'TestProject', baseUrl, '');
         await onprem.listShelvesets();
         assert.strictEqual(captured.at(-1)?.query.get('api-version'), '6.0');
         // Cloud default is asserted via constructor (fetching would hit
@@ -107,7 +109,7 @@ describe('AdoRestClient api-version override (v0.3.5)', () => {
     it('pins the api-version query parameter when the override is set', async () => {
         captured = [];
         responder = () => ({ body: JSON.stringify({ value: [] }) });
-        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '', '4.1');
+        const client = new AdoRestClient(httpClient,'', 'pat', 'TestProject', baseUrl, '', '4.1');
         await client.listShelvesets();
         assert.strictEqual(captured.at(-1)?.query.get('api-version'), '4.1',
             'TFS 2018 installs must be able to downgrade to 4.1');
@@ -116,7 +118,7 @@ describe('AdoRestClient api-version override (v0.3.5)', () => {
     it('applies the override to download URLs too (api-version travels on every call)', async () => {
         captured = [];
         responder = () => ({ body: 'raw-bytes' });
-        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '', '5.1');
+        const client = new AdoRestClient(httpClient,'', 'pat', 'TestProject', baseUrl, '', '5.1');
         await client.fetchItemContent('$/TestProject/foo.txt');
         assert.strictEqual(captured.at(-1)?.query.get('api-version'), '5.1');
     });
@@ -130,7 +132,7 @@ describe('AdoRestClient api-version override (v0.3.5)', () => {
         responder = () => ({
             body: JSON.stringify({ authenticatedUser: { id: 'u1', displayName: 'Alice' } }),
         });
-        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '', '7.1');
+        const client = new AdoRestClient(httpClient,'', 'pat', 'TestProject', baseUrl, '', '7.1');
         await client.getBotIdentity();
         const call = captured.at(-1);
         assert.ok(call?.url.includes('/_apis/connectionData'));
@@ -143,7 +145,7 @@ describe('AdoRestClient.fetchItemContent', () => {
     it('omits version params when no version is provided (HEAD)', async () => {
         captured = [];
         responder = () => ({ body: 'server file contents' });
-        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '');
+        const client = new AdoRestClient(httpClient,'', 'pat', 'TestProject', baseUrl, '');
         await client.fetchItemContent('$/TestProject/file.ts');
 
         assert.strictEqual(captured.length, 1);
@@ -155,7 +157,7 @@ describe('AdoRestClient.fetchItemContent', () => {
     it('pins to changeset version when provided (C10 regression)', async () => {
         captured = [];
         responder = () => ({ body: 'server file contents' });
-        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '');
+        const client = new AdoRestClient(httpClient,'', 'pat', 'TestProject', baseUrl, '');
         await client.fetchItemContent('$/TestProject/file.ts', 42);
 
         assert.strictEqual(captured.length, 1);
@@ -212,7 +214,7 @@ describe('AdoRestClient.getWorkItemTypeByCategory (v0.3.4 localization)', () => 
                 workItemTypes: [{ name: 'Codereviewantwort' }],
             }),
         });
-        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '');
+        const client = new AdoRestClient(httpClient,'', 'pat', 'TestProject', baseUrl, '');
         const name = await client.getWorkItemTypeByCategory('Microsoft.CodeReviewResponseCategory');
         assert.strictEqual(name, 'Codereviewantwort');
 
@@ -229,7 +231,7 @@ describe('AdoRestClient.getWorkItemTypeByCategory (v0.3.4 localization)', () => 
         responder = () => ({
             body: JSON.stringify({ defaultWorkItemType: { name: 'Code Review Response' } }),
         });
-        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '');
+        const client = new AdoRestClient(httpClient,'', 'pat', 'TestProject', baseUrl, '');
         await client.getWorkItemTypeByCategory('Microsoft.CodeReviewResponseCategory');
         await client.getWorkItemTypeByCategory('Microsoft.CodeReviewResponseCategory');
         assert.strictEqual(captured.length, 1, 'second call should be served from cache');
@@ -240,7 +242,7 @@ describe('AdoRestClient.getWorkItemTypeByCategory (v0.3.4 localization)', () => 
         responder = () => ({
             body: JSON.stringify({ workItemTypes: [{ name: 'FallbackType' }] }),
         });
-        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '');
+        const client = new AdoRestClient(httpClient,'', 'pat', 'TestProject', baseUrl, '');
         const name = await client.getWorkItemTypeByCategory('Microsoft.CodeReviewResponseCategory');
         assert.strictEqual(name, 'FallbackType');
     });
@@ -248,7 +250,7 @@ describe('AdoRestClient.getWorkItemTypeByCategory (v0.3.4 localization)', () => 
     it('throws TfvcError when the category has no types (process template missing code review)', async () => {
         captured = [];
         responder = () => ({ body: JSON.stringify({ referenceName: 'Foo', workItemTypes: [] }) });
-        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '');
+        const client = new AdoRestClient(httpClient,'', 'pat', 'TestProject', baseUrl, '');
         await assert.rejects(
             () => client.getWorkItemTypeByCategory('Microsoft.CodeReviewResponseCategory'),
             (err: Error) => err instanceof TfvcError && /process template/.test(err.message),
@@ -260,7 +262,7 @@ describe('AdoRestClient.queryOpenReviews', () => {
     it('filters by IN GROUP category reference name (localization-neutral, v0.3.4)', async () => {
         captured = [];
         responder = () => ({ body: JSON.stringify({ workItems: [] }) });
-        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '');
+        const client = new AdoRestClient(httpClient,'', 'pat', 'TestProject', baseUrl, '');
         await client.queryOpenReviews('Angefordert');
 
         const wiqlCall = captured.find(c => c.method === 'POST');
@@ -286,7 +288,7 @@ describe('AdoRestClient.queryOpenReviews', () => {
     it('defaults the state filter to "Requested" when no argument is supplied', async () => {
         captured = [];
         responder = () => ({ body: JSON.stringify({ workItems: [] }) });
-        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '');
+        const client = new AdoRestClient(httpClient,'', 'pat', 'TestProject', baseUrl, '');
         await client.queryOpenReviews();
 
         const wiqlCall = captured.find(c => c.method === 'POST');
@@ -297,7 +299,7 @@ describe('AdoRestClient.queryOpenReviews', () => {
     it('escapes single quotes in the state value to prevent WIQL injection', async () => {
         captured = [];
         responder = () => ({ body: JSON.stringify({ workItems: [] }) });
-        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '');
+        const client = new AdoRestClient(httpClient,'', 'pat', 'TestProject', baseUrl, '');
         await client.queryOpenReviews("O'Reilly");
 
         const wiqlCall = captured.find(c => c.method === 'POST');
@@ -326,7 +328,7 @@ describe('AdoRestClient.queryOpenReviews', () => {
             };
         };
 
-        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '');
+        const client = new AdoRestClient(httpClient,'', 'pat', 'TestProject', baseUrl, '');
         const reviews = await client.queryOpenReviews();
 
         assert.strictEqual(reviews.length, 450, 'all reviews returned, not truncated');
@@ -363,7 +365,7 @@ describe('AdoRestClient.createCodeReviewResponse (v0.3.4 localization)', () => {
             return { body: JSON.stringify({}) };
         };
 
-        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '');
+        const client = new AdoRestClient(httpClient,'', 'pat', 'TestProject', baseUrl, '');
         await client.createCodeReviewResponse(
             'RE: foo — Looks Good',
             42,
@@ -409,7 +411,7 @@ describe('AdoRestClient.createCodeReviewResponse (v0.3.4 localization)', () => {
             return { body: JSON.stringify({}) };
         };
 
-        const client = new AdoRestClient('', 'pat', 'TestProject', baseUrl, '');
+        const client = new AdoRestClient(httpClient,'', 'pat', 'TestProject', baseUrl, '');
         await client.createCodeReviewResponse('x', 1, 'Bob', ReviewVerdict.LooksGood);
 
         const closeCall = captured.find(c => c.method === 'PATCH' && c.url.includes('/_apis/wit/workitems/77'));

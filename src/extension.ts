@@ -7,11 +7,10 @@ import { TfvcQuickDiffProvider } from './quickDiffProvider';
 import { AutoCheckoutHandler } from './autoCheckout';
 import { WorkspaceState } from './workspace/workspaceState';
 import { AdoRestClient, buildOnPremBase } from './ado/restClient';
-import { AdoSoapClient } from './ado/soapClient';
-import { TfvcSoapClient } from './ado/tfvcSoapClient';
-import { TfvcUploadClient } from './ado/tfvcUploadClient';
+import { HttpClient, TfvcError, resolveProxyUrl } from '@qodevai/tfs-soap/core';
+import { TfvcSoapClient, TfvcUploadClient } from '@qodevai/tfs-soap/tfvc';
+import { DiscussionSoapClient } from '@qodevai/tfs-soap/discussion';
 import { ServerWorkspace } from './workspace/serverWorkspace';
-import { getStrictSSL, setStrictSSL, setProxyUrl, resolveProxyUrl } from './ado/httpClient';
 import { ReviewTreeProvider } from './providers/reviewTree';
 import { ReviewFileContentProvider } from './providers/fileContent';
 import { ReviewCommentController } from './providers/comments';
@@ -19,7 +18,6 @@ import { registerReviewCommands } from './reviewCommands';
 import { findTfvcRoots } from './workspaceDetect';
 import { getOutputChannel, logError } from './outputChannel';
 import { isIgnoredPath } from './workspace/watcherIgnore';
-import { TfvcError } from './errors';
 
 const STATE_DIR = '.vscode-tfvc';
 
@@ -34,7 +32,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // repo — they guard on these and show a "not configured" message instead
     // of failing with VS Code's generic "command not found" error.
     let restClient: AdoRestClient | undefined;
-    let soapClient: AdoSoapClient | undefined;
+    let soapClient: DiscussionSoapClient | undefined;
     let repo: TfvcRepository | undefined;
     let scmProvider: TfvcSCMProvider | undefined;
     let root: string | undefined;
@@ -87,8 +85,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const project = cfg.get<string>('adoProject', '');
         const baseUrl = cfg.get<string>('adoBaseUrl', '');
         const collectionPath = cfg.get<string>('adoCollectionPath', '');
-        setStrictSSL(cfg.get<boolean>('strictSSL', true));
-        setProxyUrl(resolveProxyUrl(cfg.get<string>('proxy', '')));
+        // One HttpClient instance per init cycle, owning strictSSL + proxy
+        // settings. Re-constructed on config change (instead of mutating
+        // module-level globals) so multiple consumers see consistent state.
+        const httpClient = new HttpClient({
+            strictSSL: cfg.get<boolean>('strictSSL', true),
+            proxyUrl: resolveProxyUrl(cfg.get<string>('proxy', '')),
+        });
 
         disposeRepoScoped();
 
@@ -102,20 +105,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
 
         const apiVersionOverride = cfg.get<string>('adoApiVersion', '');
-        restClient = new AdoRestClient(org, pat, project, baseUrl, collectionPath, apiVersionOverride);
+        restClient = new AdoRestClient(httpClient, org, pat, project, baseUrl, collectionPath, apiVersionOverride);
         reviewTree.setRestClient(restClient);
         reviewContent.setRestClient(restClient);
 
         const soapBase = baseUrl
             ? buildOnPremBase(baseUrl, collectionPath)
             : `https://dev.azure.com/${encodeURIComponent(org)}`;
-        soapClient = new AdoSoapClient(soapBase, pat);
+        soapClient = new DiscussionSoapClient(httpClient, soapBase, pat);
         reviewComments.setSoapClient(soapClient);
 
         // TFVC SOAP + upload clients share the same collection base as the
         // discussions SOAP client; they target different endpoints under it.
-        const tfvcSoap = new TfvcSoapClient(soapBase, pat);
-        const tfvcUpload = new TfvcUploadClient(soapBase, pat, () => getStrictSSL());
+        const tfvcSoap = new TfvcSoapClient(httpClient, soapBase, pat);
+        const tfvcUpload = new TfvcUploadClient(httpClient, soapBase, pat);
 
         outputChannel.appendLine(`ADO REST client initialized for ${baseUrl || `dev.azure.com/${org}`}/${project}`);
 

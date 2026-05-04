@@ -7,7 +7,7 @@
 
 import * as vscode from 'vscode';
 import { AdoRestClient } from '../ado/restClient';
-import { TfvcError } from '../errors';
+import { TfvcError } from '@qodevai/tfs-soap/core';
 import { logError } from '../outputChannel';
 
 export const REVIEW_SCHEME = 'tfvc-review';
