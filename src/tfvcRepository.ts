@@ -4,12 +4,11 @@ import { WorkspaceState } from './workspace/workspaceState';
 import { PendingChange, CheckinResult, SyncResult, HistoryEntry, ChangeType } from './workspace/types';
 import { localToServer, serverToLocal, pathKey, samePath } from './workspace/pathMapping';
 import { AdoRestClient } from './ado/restClient';
-import { TfvcSoapClient, PendChangeRequest } from './ado/tfvcSoapClient';
-import { TfvcUploadClient } from './ado/tfvcUploadClient';
+import { TfvcSoapClient, TfvcUploadClient, PendChangeRequest } from '@qodevai/tfs-soap/tfvc';
+import { TfvcError } from '@qodevai/tfs-soap/core';
 import { ServerWorkspace } from './workspace/serverWorkspace';
 import { encodeFileContent } from './ado/encoding';
 import { ShelvesetInfo } from './ado/types';
-import { TfvcError } from './errors';
 import { logError } from './outputChannel';
 
 export { PendingChange, ChangeType } from './workspace/types';

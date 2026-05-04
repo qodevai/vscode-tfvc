@@ -21,7 +21,7 @@ import { computeFileHash } from './hashing';
 import { serverToLocal, localToServer, pathKey, samePath } from './pathMapping';
 import { AdoRestClient } from '../ado/restClient';
 import { TfvcItemFull } from '../ado/types';
-import { TfvcError } from '../errors';
+import { TfvcError } from '@qodevai/tfs-soap/core';
 
 /** Logger function — defaults to console.error, overridden at construction. */
 type LogFn = (message: string) => void;

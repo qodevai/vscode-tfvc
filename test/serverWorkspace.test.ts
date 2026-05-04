@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import { ServerWorkspace, computeWorkspaceName } from '../src/workspace/serverWorkspace';
-import { TfvcSoapClient, WorkspaceInfo } from '../src/ado/tfvcSoapClient';
+import { TfvcSoapClient, WorkspaceInfo } from '@qodevai/tfs-soap/tfvc';
 
 /**
  * Stub AdoSoapClient-derived class — we only exercise the three methods

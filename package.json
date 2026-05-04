@@ -388,5 +388,8 @@
     "mocha": "^11.7.5",
     "npm-run-all2": "^8.0.4",
     "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "@qodevai/tfs-soap": "^0.1.1"
   }
 }

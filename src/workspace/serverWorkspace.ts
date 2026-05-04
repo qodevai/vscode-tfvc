@@ -17,7 +17,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { TfvcSoapClient, WorkspaceInfo } from '../ado/tfvcSoapClient';
+import { TfvcSoapClient, WorkspaceInfo } from '@qodevai/tfs-soap/tfvc';
 
 const STATE_FILENAME = 'server-workspace.json';
 const NAME_PREFIX = 'vscode-tfvc-';

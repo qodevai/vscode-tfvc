@@ -7,10 +7,9 @@ import { TfvcRepository, ChangeEmitter } from '../src/tfvcRepository';
 import { PendingChange, BaselineItem, SyncResult } from '../src/workspace/types';
 import { WorkspaceState } from '../src/workspace/workspaceState';
 import { AdoRestClient } from '../src/ado/restClient';
-import { TfvcSoapClient, PendChangeRequest, WorkspaceInfo, ShelveFailure } from '../src/ado/tfvcSoapClient';
-import { TfvcUploadClient, UploadRequest, UploadResult } from '../src/ado/tfvcUploadClient';
+import { TfvcSoapClient, TfvcUploadClient, PendChangeRequest, WorkspaceInfo, ShelveFailure, UploadRequest, UploadResult } from '@qodevai/tfs-soap/tfvc';
+import { TfvcError } from '@qodevai/tfs-soap/core';
 import { ServerWorkspace } from '../src/workspace/serverWorkspace';
-import { TfvcError } from '../src/errors';
 import { ChangesetResponse, ChangesetInfo, ShelvesetInfo, ShelvesetChange, CreateChangesetRequest } from '../src/ado/types';
 
 // ── Test doubles ──────────────────────────────────────────────────────────

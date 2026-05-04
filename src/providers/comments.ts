@@ -6,7 +6,7 @@
  */
 
 import * as vscode from 'vscode';
-import { AdoSoapClient, DiscussionThread } from '../ado/soapClient';
+import { DiscussionSoapClient, DiscussionThread } from '@qodevai/tfs-soap/discussion';
 import { REVIEW_SCHEME } from './fileContent';
 import { logError } from '../outputChannel';
 
@@ -15,13 +15,13 @@ export class ReviewCommentController implements vscode.Disposable {
     private threads: vscode.CommentThread[] = [];
     private disposables: vscode.Disposable[] = [];
 
-    constructor(private soapClient: AdoSoapClient | undefined) {
+    constructor(private soapClient: DiscussionSoapClient | undefined) {
         this.controller = vscode.comments.createCommentController('tfvc-reviews', 'TFVC Reviews');
         this.controller.commentingRangeProvider = undefined; // read-only for now
         this.disposables.push(this.controller);
     }
 
-    setSoapClient(client: AdoSoapClient | undefined): void {
+    setSoapClient(client: DiscussionSoapClient | undefined): void {
         this.soapClient = client;
     }
 
