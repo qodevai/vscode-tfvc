@@ -73,10 +73,17 @@ All commands are available under the `TFVC:` category in the command palette:
 
 - `Initialize Workspace`, `Set PAT (Personal Access Token)`
 - `Refresh`, `Check In`, `Get Latest (Sync)`, `Check Out (Lock for Edit)`
-- `Undo`, `Undo All Changes`, `Add File`, `Delete File`
+- `Undo`, `Undo All Changes`, `Add to Source Control`, `Delete from Source Control`
 - `Open Diff`, `Open File`, `Show History`
 - `Shelve Changes`, `Unshelve Changes`, `List Shelvesets`
 - `Refresh Code Reviews`, `Submit Review Verdict`
+
+`Add to Source Control` and `Delete from Source Control` act on a file URI.
+Right-click a file in the Explorer to use them; `Add to Source Control` can
+also be run from the command palette with a file open in the editor (it falls
+back to the active editor). `Delete from Source Control` is hidden from the
+command palette because it also removes the local file — use the Explorer
+context menu and confirm the prompt.
 
 ## License
 

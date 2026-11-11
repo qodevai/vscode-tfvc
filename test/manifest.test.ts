@@ -141,6 +141,51 @@ describe('manifest: contributes.menus', () => {
         const dangling = [...referenced].filter(id => !declared.has(id));
         assert.deepStrictEqual(dangling, [], `menu references undeclared commands: ${dangling.join(', ')}`);
     });
+
+    it('tfvc.add and tfvc.delete have Explorer context menu entries', () => {
+        // Both commands require a file URI (resolveUris() reads command args).
+        // With no menu entry there is no way to pass one, so the command is
+        // declared but unreachable -- the v0.4.2 Add/Delete no-op regression.
+        const explorer = manifest.contributes.menus['explorer/context'] ?? [];
+        const wired = new Set(explorer.map(e => e.command));
+        for (const id of ['tfvc.add', 'tfvc.delete']) {
+            assert.ok(wired.has(id), `${id} has no Explorer context menu entry`);
+        }
+    });
+
+    it('Explorer file commands are restricted to files, not folders', () => {
+        // markAdd()/markDelete() are not recursive: passing a folder URI
+        // registers the folder itself as a file and Check In fails.
+        const explorer = manifest.contributes.menus['explorer/context'] ?? [];
+        for (const entry of explorer.filter(e => e.command === 'tfvc.add' || e.command === 'tfvc.delete')) {
+            assert.ok(entry.when?.includes('!explorerResourceIsFolder'), `${entry.command} can be invoked on a folder`);
+            assert.ok(entry.when?.includes('resourceScheme == file'), `${entry.command} should be limited to file:// resources`);
+        }
+    });
+
+    it('tfvc.delete is hidden from the Command Palette', () => {
+        // Palette calls carry no URI, and repo.delete() unlinks the local
+        // file. Require an explicit Explorer target instead.
+        const hidden = new Set(
+            (manifest.contributes.menus.commandPalette ?? [])
+                .filter(e => e.when === 'false')
+                .map(e => e.command),
+        );
+        assert.ok(hidden.has('tfvc.delete'), 'tfvc.delete must not be invocable without a file URI');
+    });
+
+    it('Add/Delete commands use source-control wording', () => {
+        // "Add File" / "Delete File" read like plain filesystem operations in
+        // the Explorer context menu (category is only shown in the palette).
+        assert.strictEqual(
+            manifest.contributes.commands.find(c => c.command === 'tfvc.add')?.title,
+            'Add to Source Control',
+        );
+        assert.strictEqual(
+            manifest.contributes.commands.find(c => c.command === 'tfvc.delete')?.title,
+            'Delete from Source Control',
+        );
+    });
 });
 
 describe('manifest: contributes.configuration', () => {

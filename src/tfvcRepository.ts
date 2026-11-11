@@ -7,7 +7,7 @@ import { AdoRestClient } from './ado/restClient';
 import { TfvcSoapClient, PendChangeRequest } from './ado/tfvcSoapClient';
 import { TfvcUploadClient } from './ado/tfvcUploadClient';
 import { ServerWorkspace } from './workspace/serverWorkspace';
-import { encodeFileContent } from './ado/encoding';
+import { encodeFileContent, detectContentEncoding } from './ado/encoding';
 import { ShelvesetInfo } from './ado/types';
 import { TfvcError } from './errors';
 import { logError } from './outputChannel';
@@ -157,7 +157,11 @@ export class TfvcRepository {
             }
 
             if (c.changeType !== 'delete') {
-                payload.newContent = encodeFileContent(fs.readFileSync(c.localPath));
+                const bytes = fs.readFileSync(c.localPath);
+                payload.newContent = encodeFileContent(bytes);
+                // TFS 2018 U2 / api-version 4.1 rejects a change without an
+                // explicit encoding even for base64Encoded content.
+                payload.item.contentMetadata = { encoding: detectContentEncoding(bytes) };
             } else {
                 const baseline = this.state.getBaselineItemByServer(c.serverPath);
                 if (baseline) {

@@ -167,6 +167,13 @@ export class TfvcSCMProvider implements vscode.Disposable {
 
     public async handleAdd(args: any[]): Promise<void> {
         const uris = this.resolveUris(args);
+        if (uris.length === 0) {
+            // The Command Palette invokes commands without URI arguments.
+            // Mirror handleCheckout() and fall back to the active editor so
+            // "TFVC: Add to Source Control" is not a silent no-op.
+            const active = vscode.window.activeTextEditor?.document.uri;
+            if (active) { uris.push(active); }
+        }
         if (uris.length === 0) { return; }
         await this.repo.add(uris.map(u => u.fsPath));
     }
@@ -175,12 +182,15 @@ export class TfvcSCMProvider implements vscode.Disposable {
         const uris = this.resolveUris(args);
         if (uris.length === 0) { return; }
 
+        // repo.delete() unlinks the local file too. Say so explicitly: the
+        // command is a source-control operation, not a plain file delete.
+        const DELETE_ACTION = 'Delete from Source Control';
         const confirm = await vscode.window.showWarningMessage(
-            `Delete ${uris.length} file(s) from TFVC?`,
+            `Delete ${uris.length} file(s) from source control? This also removes the local file(s).`,
             { modal: true },
-            'Delete'
+            DELETE_ACTION
         );
-        if (confirm !== 'Delete') { return; }
+        if (confirm !== DELETE_ACTION) { return; }
 
         await this.repo.delete(uris.map(u => u.fsPath));
     }

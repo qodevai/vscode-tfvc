@@ -85,12 +85,12 @@
       },
       {
         "command": "tfvc.add",
-        "title": "Add File",
+        "title": "Add to Source Control",
         "category": "TFVC"
       },
       {
         "command": "tfvc.delete",
-        "title": "Delete File",
+        "title": "Delete from Source Control",
         "category": "TFVC"
       },
       {
@@ -278,6 +278,22 @@
         {
           "command": "tfvc.openReviewFileDiff",
           "when": "false"
+        },
+        {
+          "command": "tfvc.delete",
+          "when": "false"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "tfvc.add",
+          "when": "resourceScheme == file && !explorerResourceIsFolder",
+          "group": "7_modification@90"
+        },
+        {
+          "command": "tfvc.delete",
+          "when": "resourceScheme == file && !explorerResourceIsFolder",
+          "group": "7_modification@91"
         }
       ]
     },

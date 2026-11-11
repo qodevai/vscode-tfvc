@@ -70,6 +70,8 @@ export interface TfvcChangePayload {
     item: {
         path: string;
         version?: number;
+        /** Required by on-prem TFS even for base64 content (see encoding.ts). */
+        contentMetadata?: { encoding: number };
     };
     newContent?: {
         content: string;

@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { describe, it } from 'node:test';
-import { encodeFileContent } from '../src/ado/encoding';
+import { encodeFileContent, detectContentEncoding } from '../src/ado/encoding';
 
 describe('encodeFileContent', () => {
     it('round-trips an ASCII file byte-exact', () => {
@@ -44,5 +44,28 @@ describe('encodeFileContent', () => {
         const { content, contentType } = encodeFileContent(input);
         assert.strictEqual(content, '');
         assert.strictEqual(contentType, 'base64Encoded');
+    });
+});
+
+describe('detectContentEncoding', () => {
+    it('returns 65001 for plain UTF-8 text', () => {
+        assert.strictEqual(detectContentEncoding(Buffer.from('hello\n')), 65001);
+    });
+
+    it('recognises a UTF-8 BOM', () => {
+        assert.strictEqual(detectContentEncoding(Buffer.from([0xef, 0xbb, 0xbf, 0x68, 0x69])), 65001);
+    });
+
+    it('recognises UTF-16 LE / BE BOMs', () => {
+        assert.strictEqual(detectContentEncoding(Buffer.from([0xff, 0xfe, 0x68, 0x00])), 1200);
+        assert.strictEqual(detectContentEncoding(Buffer.from([0xfe, 0xff, 0x00, 0x68])), 1201);
+    });
+
+    it('returns -1 for binary content', () => {
+        assert.strictEqual(detectContentEncoding(Buffer.from([0x00, 0x89, 0x50, 0x4e, 0x47])), -1);
+    });
+
+    it('treats an empty file as UTF-8 text', () => {
+        assert.strictEqual(detectContentEncoding(Buffer.alloc(0)), 65001);
     });
 });
